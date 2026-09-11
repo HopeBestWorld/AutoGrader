@@ -9,6 +9,12 @@ dependencies = [
     "marimo>=0.8.0",
     "scikit-learn>=1.4.0",
     "sentence-transformers>=3.0.0",
+    "transformers==4.48.3",
     "pandas>=2.2.0",
     "numpy>=1.26.0",
+    "ipython>=9.17.1",
+    "matplotlib>=3.11.1",
+    "spacy>=3.8.16",
+    "datasets>=5.0.1",
+    "seaborn>=0.13.2",
 ]
