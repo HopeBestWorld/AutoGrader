@@ -17,4 +17,10 @@ dependencies = [
     "spacy>=3.8.16",
     "datasets>=5.0.1",
     "seaborn>=0.13.2",
+    "altair>=5.0.0",
+    "umap-learn>=0.5.5",
+    "biopython>=1.88",
+    "beautifulsoup4>=4.15.0",
+    "jieba>=0.42.1",
+    "gdown>=6.2.0",
 ]
