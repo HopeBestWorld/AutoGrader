@@ -228,13 +228,17 @@ dependencies = [
     { name = "biopython" },
     { name = "datasets" },
     { name = "gdown" },
+    { name = "hdbscan" },
     { name = "ipython" },
     { name = "jieba" },
+    { name = "kagglehub" },
     { name = "marimo" },
     { name = "matplotlib" },
+    { name = "networkx" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
+    { name = "python-louvain" },
     { name = "scikit-learn" },
     { name = "seaborn" },
     { name = "sentence-transformers" },
@@ -251,12 +255,16 @@ requires-dist = [
     { name = "biopython", specifier = ">=1.88" },
     { name = "datasets", specifier = ">=5.0.1" },
     { name = "gdown", specifier = ">=6.2.0" },
+    { name = "hdbscan", specifier = ">=0.8.44" },
     { name = "ipython", specifier = ">=9.17.1" },
     { name = "jieba", specifier = ">=0.42.1" },
+    { name = "kagglehub", specifier = ">=1.0.2" },
     { name = "marimo", specifier = ">=0.8.0" },
     { name = "matplotlib", specifier = ">=3.11.1" },
+    { name = "networkx", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pandas", specifier = ">=2.2.0" },
+    { name = "python-louvain", specifier = ">=0.16" },
     { name = "scikit-learn", specifier = ">=1.4.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
     { name = "sentence-transformers", specifier = ">=3.0.0" },
@@ -1171,6 +1179,34 @@ wheels = [
 ]
 
 [[package]]
+name = "hdbscan"
+version = "0.8.44"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "joblib" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "scikit-learn" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/51/b476849d27980d1ce5ba0a172891d37441b0112047894350951f6b169266/hdbscan-0.8.44.tar.gz", hash = "sha256:1ac6196fabdd42072284b60c9be7b9b504b5f4f25cf7a551a8af29a3c7963a4d", size = 7094270, upload-time = "2026-06-01T18:56:31.342Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/75/7ea947869eeb877c3d2b23ce2cbfcc9c5e8e31dd10d81e04add53f3f0c7e/hdbscan-0.8.44-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:e83276c6147d1ec74359ac2d07b2df9d0deb5e248194660967bcde6437a8518c", size = 2603287, upload-time = "2026-06-01T18:55:43.43Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/99/17dd8a7e845504c3b8f9443bb1b15d20461c70c0c305186fa3526bb55277/hdbscan-0.8.44-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6089b8accd805a3a7409b20247e29e54dea6118785771127a4fc6c5eda24f0ef", size = 5929276, upload-time = "2026-06-01T18:56:33.065Z" },
+    { url = "https://files.pythonhosted.org/packages/13/8d/eec0040bd273c9e43409672c8cec1956775aca3ebafad8a9e3f5d25cfd80/hdbscan-0.8.44-cp311-cp311-win_amd64.whl", hash = "sha256:df6d6268022747a60c9990cecf446bc7a71621ff92bc51c86f5958d1cd451870", size = 1964877, upload-time = "2026-06-01T18:56:12.515Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/f0/4f719c1275158a13918124ce7d798be4b4ae2898469b467216fde974e443/hdbscan-0.8.44-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:cc4917a57f73984137bc6f14cddd1a140907102522174af8d8add42668a5e196", size = 2590501, upload-time = "2026-06-01T18:55:52.587Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/95/4f08d8adeba894453a057f1b87d24fb155e040601137cb82536d9708ff30/hdbscan-0.8.44-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d67f2b3628a80764a07fff3a994df2c6b2d9a6b9c8024edde7b36c184f6657f6", size = 5868686, upload-time = "2026-06-01T18:56:33.787Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/a2/959f617dbff9ebe0ef9b55f61c84b7ad00e5eb91b47b838b3a1a2bf0aa95/hdbscan-0.8.44-cp312-cp312-win_amd64.whl", hash = "sha256:29bffe0ef8a8191e6cd5af3dc7fdf5e7f6334eea8fa39ee8488f2f16911c1cdf", size = 1947427, upload-time = "2026-06-01T18:56:14.433Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/cb/c4d5c76145a053a7ac04d5106872ce44b199783a4249536c2d9f140c3c07/hdbscan-0.8.44-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:9256a7028f017b257c5eba05fe332a744a410c0dcb9971eaa9ed6c5efaac50d5", size = 2580855, upload-time = "2026-06-01T18:55:37.972Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/73/12786f8e999959dbf56dfd2b0e4a7e7cc3ccfdcf3a464b0f019bc93e9556/hdbscan-0.8.44-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:3400d93a299228e86dec77cc114b834cdd48413f7999eaddaecba045c38ee915", size = 5850796, upload-time = "2026-06-01T18:56:40.535Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/83/02a8d5c03e1fa535965c1339ee3f4d2c0ffd30163904aa817a970d1200c9/hdbscan-0.8.44-cp313-cp313-win_amd64.whl", hash = "sha256:0f4fa78c76459e1e00282fd8d67a6834ca46ba232e38414f69bb1bacc2c263ce", size = 1947052, upload-time = "2026-06-01T18:57:01.255Z" },
+    { url = "https://files.pythonhosted.org/packages/15/7e/bd23accbaf40a4cc7a179c22129b81023b5daeb3a4d7af6c5f825f29e0ab/hdbscan-0.8.44-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:2351eb81f21491b5b50bdc5ecaa2d88f58608f51f5906774cb38747f21b18053", size = 2603654, upload-time = "2026-06-01T18:55:41.641Z" },
+    { url = "https://files.pythonhosted.org/packages/87/10/1b1379a3576e3d9af5c931f942d321017fd2129dad21bc850063706a8ec9/hdbscan-0.8.44-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f7ee278a8da6043671031079b245488ee27565f48a83616637dae0b2c4886ea1", size = 5817791, upload-time = "2026-06-01T18:56:40.999Z" },
+    { url = "https://files.pythonhosted.org/packages/db/ae/74d1aee2a7c6c39b16a8d4fa7aa3d029d7d08d0c5461d7b55f9619b48598/hdbscan-0.8.44-cp314-cp314-win_amd64.whl", hash = "sha256:5ea248dcaca951861e811411bf3eb9954f932f3a90c8bbe5629b5ee8479e011e", size = 1969244, upload-time = "2026-06-01T18:56:29.289Z" },
+]
+
+[[package]]
 name = "hf-xet"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1403,6 +1439,35 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa6d1095e7cc5569bebf04342ee146178e2d36600708b/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d", size = 32855, upload-time = "2025-09-08T01:34:59.186Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
+]
+
+[[package]]
+name = "kagglehub"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "kagglesdk" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b5/b9/e1bdafdcdb98e8e5354b30959ed48f4a08ca2c2dc72c968c5b38c4baa1b5/kagglehub-1.0.2.tar.gz", hash = "sha256:08abae0c1e249904003ce6f23c189166e3032220478426a552c77c2edb08b93a", size = 117457, upload-time = "2026-06-09T17:14:05.313Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/1a/6b1293d0b091905e367f86771a7122e5f7f2729ab9f0f36a1617f7ad6c05/kagglehub-1.0.2-py3-none-any.whl", hash = "sha256:ffad2d79cfda9b06848e98cb0a4a48e286285cfba4aeadadc0b8dbd9bcadd372", size = 70645, upload-time = "2026-06-09T17:14:04.04Z" },
+]
+
+[[package]]
+name = "kagglesdk"
+version = "0.1.37"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/44/8b/363ad553d5d8f23b10be03ae469cc0f3dd746862bc1213c4d6fac64a4a4b/kagglesdk-0.1.37.tar.gz", hash = "sha256:bc362761754966919f63cb7a702bc34118f9e8fcce038ee00fb30d5d11afbe08", size = 210001, upload-time = "2026-08-06T22:24:04.514Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/8e/70c358fcf8f6c41f9e74bc0d6203cb623eab6d4b062758c716d51f621167/kagglesdk-0.1.37-py3-none-any.whl", hash = "sha256:766e7d1e59379941b373957e7d80f612942e63ab4a638d99ae4ee3e9e92f050e", size = 262519, upload-time = "2026-08-06T22:24:03.344Z" },
 ]
 
 [[package]]
@@ -3177,6 +3242,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
 ]
+
+[[package]]
+name = "python-louvain"
+version = "0.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "networkx" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7c/0d/8787b021d52eb8764c0bb18ab95f720cf554902044c6a5cb1865daf45763/python-louvain-0.16.tar.gz", hash = "sha256:b7ba2df5002fd28d3ee789a49532baad11fe648e4f2117cf0798e7520a1da56b", size = 204641, upload-time = "2022-01-29T15:53:03.532Z" }
 
 [[package]]
 name = "python-multipart"
