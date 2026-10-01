@@ -1,0 +1,34 @@
+[project]
+name = "autograder"
+version = "0.1.0"
+description = "Assignment 5 topic-modeling review and execution checker"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyrmallet",
+    "duckdb",
+    "sqlglot",
+    "pyarrow",
+    "streamlit>=1.38.0",
+    "marimo>=0.24.0",
+    "scikit-learn>=1.4.0",
+    "sentence-transformers>=3.0.0",
+    "transformers==4.48.3",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "ipython>=9.17.1",
+    "matplotlib>=3.11.1",
+    "spacy>=3.8.16",
+    "datasets>=5.0.1",
+    "seaborn>=0.13.2",
+    "altair>=5.0.0",
+    "umap-learn>=0.5.5",
+    "biopython>=1.88",
+    "beautifulsoup4>=4.15.0",
+    "jieba>=0.42.1",
+    "gdown>=6.2.0",
+    "hdbscan>=0.8.44",
+    "kagglehub>=1.0.2",
+    "networkx>=3.6.1",
+    "python-louvain>=0.16",
+]
