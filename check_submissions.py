@@ -18,8 +18,15 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--execute', action='store_true', help='Execute notebooks/single scripts in this disposable machine')
     parser.add_argument('--student', action='append', help='Exact Canvas student key; repeat to select students')
+    parser.add_argument('--mock', action='store_true', help='Explicitly labeled smoke test with generated missing inputs')
+    parser.add_argument('--mock-fixtures', type=Path, help='ZIP of mock data/helper test doubles (requires --mock)')
+    parser.add_argument('--mock-words', type=int, default=18000)
     parser.add_argument('--timeout', type=int, default=120)
     args = parser.parse_args()
+    if args.mock_fixtures and not args.mock:
+        parser.error('--mock-fixtures requires --mock')
+    if not 100 <= args.mock_words <= 50000:
+        parser.error('--mock-words must be between 100 and 50000')
     if args.timeout < 1:
         parser.error('--timeout must be positive')
     profile = load_profile(args.assignment.read_bytes(), args.assignment.name)
@@ -41,6 +48,11 @@ def main():
             unknown_resources = [p.name for p in resource_root.iterdir() if not p.is_dir() or p.name not in groups]
             if unknown_resources:
                 parser.error('Unknown student resource folders: ' + ', '.join(unknown_resources))
+        mock_root = None
+        if args.mock_fixtures:
+            mock_root = Path(tmp) / 'mock-fixtures'
+            budget = safe_extract(args.mock_fixtures, mock_root)
+            unpack_nested(mock_root, budget)
         rows = []
         for student, folder in groups.items():
             row = review_folder(folder, profile, student)
@@ -53,7 +65,7 @@ def main():
                     row['execution'].append({'file': '', 'status':'NOT RUN — NO UNAMBIGUOUS ENTRYPOINT', 'returncode': None, 'log':'Select the main script in the Streamlit app.'})
                 for entry in entries:
                     try:
-                        row['execution'].append(run_entrypoint(folder, entry, args.timeout, shared, resources=resources))
+                        row['execution'].append(run_entrypoint(folder, entry, args.timeout, shared, resources=resources, mock=args.mock, mock_fixtures=mock_root, mock_words=args.mock_words))
                     except Exception as exc:
                         row['execution'].append({'file': entry, 'status':'CHECKER / STAGING ERROR', 'returncode':None, 'log':f'{type(exc).__name__}: {exc}'})
             rows.append(row)

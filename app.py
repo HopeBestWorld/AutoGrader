@@ -45,9 +45,17 @@ def main():
     archive = st.file_uploader('Canvas submissions ZIP', type=['zip'])
     shared = st.file_uploader('Shared course-files ZIP (optional)', type=['zip'], help='Put instructor helpers at the ZIP root, e.g. readability_tools.py or sentiment_toolkit.py, and retain data/ subfolders. Files are copied into each disposable execution copy. Student files take precedence; conflicts are logged.')
     resources = st.file_uploader('Student-specific files ZIP (optional)', type=['zip'], help='One folder per Canvas student key, e.g. smith_12345/book.txt or smith_12345/helper.py. Files are used only for that student, never shared with classmates.')
-    st.caption('Missing real data or helper code means execution cannot be verified. The checker can identify prerequisites and retry once the originals are provided; it never fabricates substitutes.')
+    st.caption('Check with original inputs, or select an explicitly labeled mock smoke test when inputs are missing. Mock success does not verify the original data, helper behavior, or completion.')
     with st.expander('Execution settings'):
         st.info('Student programs run with this machine’s permissions. Use a disposable environment without sensitive files. Temporary folders and stripped child-process credentials do not provide a security sandbox.')
+        execution_mode = st.selectbox('Execution mode', ['Provided inputs', 'Mock inputs — smoke test only'])
+        mock_enabled = execution_mode.startswith('Mock')
+        mock_fixtures = None
+        mock_words = 18000
+        if mock_enabled:
+            st.warning('Missing text, CSV/TSV, JSON/JSONL and gzip inputs can be synthesized. Schemas are guesses. Unknown Python helpers need a compatible mock implementation; errors and assertions remain active. Results will be labeled as mock tests, not verified original-data runs.')
+            mock_fixtures = st.file_uploader('Mock-fixtures ZIP (optional: data files or helper test doubles)', type=['zip'], help='Preserve the paths relative to the submission root. Real files and installed modules take precedence. Every copied mock is recorded. Unknown helper APIs are never replaced automatically.')
+            mock_words = st.number_input('Synthetic corpus word target', min_value=100, max_value=50000, value=18000)
         timeout = st.number_input('Timeout per entrypoint (seconds)', min_value=5, max_value=14400, value=120)
         mappings_text = st.text_area('Optional exact path mappings (JSON)', '{}', help='Map a submitted literal path to a relative file in the execution copy, e.g. {"/Users/student/book.txt": "book.txt"}. No fuzzy matching, substitute data, or silent code repair is performed.')
         consent = st.checkbox('Execute student code in this disposable environment', value=False)
@@ -95,7 +103,7 @@ def main():
     resource_id = hashlib.sha256((shared.getvalue() if shared else b'') + (resources.getvalue() if resources else b'') + json.dumps(mapping, sort_keys=True).encode()).hexdigest()
 
     def prepare_uploads(tmp):
-        shared_root, student_root = None, None
+        shared_root, student_root, mock_root = None, None, None
         if shared:
             shared_root = Path(tmp) / 'shared'
             budget = safe_extract(io.BytesIO(shared.getvalue()), shared_root)
@@ -107,13 +115,17 @@ def main():
             unknown = [p.name for p in student_root.iterdir() if not p.is_dir() or p.name not in eligible]
             if unknown:
                 raise ValueError('Student resource ZIP must contain folders named with exact Canvas student keys. Unknown entries: ' + ', '.join(unknown))
-        return shared_root, student_root
+        if mock_fixtures:
+            mock_root = Path(tmp) / 'mock-fixtures'
+            budget = safe_extract(io.BytesIO(mock_fixtures.getvalue()), mock_root)
+            unpack_nested(mock_root, budget)
+        return shared_root, student_root, mock_root
 
     if st.button('Check missing prerequisites (no execution)', disabled=not selected):
         try:
             with tempfile.TemporaryDirectory(prefix='grader-audit-') as tmp:
                 groups = group_submissions(io.BytesIO(archive.getvalue()), Path(tmp))
-                shared_root, student_root = prepare_uploads(tmp)
+                shared_root, student_root, mock_root = prepare_uploads(tmp)
                 for r in rows:
                     if r['student'] in selected:
                         r['prerequisites'] = preflight_submission(groups[r['student']], shared_root, student_root / r['student'] if student_root else None, mapping)
@@ -124,20 +136,21 @@ def main():
         try:
             with tempfile.TemporaryDirectory(prefix='grader-batch-') as tmp:
                 groups = group_submissions(io.BytesIO(archive.getvalue()), Path(tmp))
-                shared_root, student_root = prepare_uploads(tmp)
+                shared_root, student_root, mock_root = prepare_uploads(tmp)
                 progress = st.progress(0.0)
                 chosen = [r for r in rows if r['student'] in selected]
                 for i, row in enumerate(chosen):
-                    row['execution'] = []
+                    # Retain the latest original-input and mock attempts separately.
+                    row['execution'] = [e for e in row['execution'] if bool(e.get('mock_requested', False)) != mock_enabled]
                     if not row['selected_entrypoints']:
-                        row['execution'].append({'file': '', 'status': 'NOT RUN — SELECT AN ENTRYPOINT', 'log': 'Choose an entrypoint in the student inspector.', 'returncode': None})
+                        row['execution'].append({'file': '', 'status': 'NOT RUN — SELECT AN ENTRYPOINT', 'log': 'Choose an entrypoint in the student inspector.', 'returncode': None, 'mock_requested': mock_enabled})
                     for entry in row['selected_entrypoints']:
                         try:
-                            result = run_entrypoint(groups[row['student']], entry, int(timeout), shared_root, mapping, student_root / row['student'] if student_root else None)
-                            result['configuration'] = {'shared_zip_sha256': hashlib.sha256(shared.getvalue()).hexdigest() if shared else None, 'student_resources_sha256': hashlib.sha256(resources.getvalue()).hexdigest() if resources else None, 'path_mappings': mapping, 'timeout': int(timeout)}
+                            result = run_entrypoint(groups[row['student']], entry, int(timeout), shared_root, mapping, student_root / row['student'] if student_root else None, mock=mock_enabled, mock_fixtures=mock_root, mock_words=int(mock_words))
+                            result['configuration'] = {'shared_zip_sha256': hashlib.sha256(shared.getvalue()).hexdigest() if shared else None, 'student_resources_sha256': hashlib.sha256(resources.getvalue()).hexdigest() if resources else None, 'path_mappings': mapping, 'timeout': int(timeout), 'mock_mode': mock_enabled, 'mock_words': int(mock_words), 'mock_fixtures_sha256': hashlib.sha256(mock_fixtures.getvalue()).hexdigest() if mock_fixtures else None}
                             row['execution'].append(result)
                         except Exception as exc:
-                            row['execution'].append({'file': entry, 'status': 'CHECKER / STAGING ERROR', 'log': f'{type(exc).__name__}: {exc}', 'returncode': None})
+                            row['execution'].append({'file': entry, 'status': 'CHECKER / STAGING ERROR', 'log': f'{type(exc).__name__}: {exc}', 'returncode': None, 'mock_requested': mock_enabled})
                     progress.progress((i + 1) / len(chosen), text=f'Checked {i + 1}/{len(chosen)} students')
         except Exception as exc:
             st.error(f'Execution preparation failed: {exc}')
@@ -152,7 +165,7 @@ def main():
             if row.get('prerequisite_configuration') != resource_id:
                 st.warning('Resource uploads or mappings changed. Run the prerequisite check again for current results.')
             audit = row['prerequisites']
-            st.caption(audit['note'])
+            st.caption(audit['note'] + ' This inventory describes provided inputs; mock files are only staged during an explicitly selected mock execution.')
             for category in ('modules', 'inputs', 'models', 'dynamic_inputs'):
                 if audit[category]:
                     st.write(category.replace('_', ' ').title())
@@ -203,6 +216,10 @@ def main():
             req['review_note'] = st.text_area('Reviewer note', req['review_note'], key=f'note-{key}')
     for index, result in enumerate(row['execution']):
         with st.expander(f'{result["file"]}: {result["status"]}'):
+            if result.get('mock_used'):
+                st.warning('MOCK SMOKE TEST ONLY — original-input behavior and assignment completion are unverified.')
+                st.write('Substitutions used:')
+                st.dataframe(result['mocks']['manifest'], hide_index=True)
             st.write({k: v for k, v in result.items() if k not in ('log', 'artifact')})
             if result.get('missing_resources'):
                 st.write('Resources to obtain before retrying:')

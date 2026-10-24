@@ -115,7 +115,7 @@ def audit_prerequisites(folder):
                 target = (path.parent / value).resolve()
                 status = ('EXTERNAL PATH — SUPPLY FILE AND MAP PATH' if not target.is_relative_to(root)
                           else 'AVAILABLE' if target.is_file() else 'MISSING OR GENERATED AT RUNTIME')
-            inputs.append({'source': relative, 'line': node.lineno, 'path': value, 'status': status,
+            inputs.append({'source': relative, 'line': node.lineno, 'path': value, 'reader': name, 'status': status,
                            'action': '' if status == 'AVAILABLE' else 'Supply the actual input in the shared or student-specific files ZIP; use an exact path mapping if needed. Generated/conditional inputs may not need supplying.'})
     # Some references are optional, conditional or generated. Only execution establishes a blocker.
     return {'modules': modules, 'inputs': inputs, 'models': models, 'dynamic_inputs': unresolved,
@@ -153,5 +153,5 @@ def recovery_requirements(log):
         path = re.sub(r'^.*?/grader-run-[^/]+/submission/', '', path)
         needs.append({'kind': 'file', 'name': path, 'action': 'Request the actual file from the student or instructor, preserve its expected relative path or add an exact mapping, then rerun.'})
     if not needs:
-        needs.append({'kind': 'inspection', 'name': 'See execution log', 'action': 'Inspect the first exception for missing models, access, package versions or dynamically constructed inputs. No replacement data or code was generated.'})
+        needs.append({'kind': 'inspection', 'name': 'See execution log', 'action': 'Inspect the first exception for missing models, access, package versions or dynamically constructed inputs. Inspect any mock manifest separately; a mock run does not verify the original inputs.'})
     return needs

@@ -375,7 +375,7 @@ def stage_shared(shared, work):
 
 
 def stage_paths(work, mapping):
-    """Explicit literal mappings only, confined to this execution copy; no fuzzy repair."""
+    """Rewrite exact Python string literals only in disposable scripts/notebook cells."""
     events = []
     if not mapping:
         return events
@@ -385,21 +385,52 @@ def stage_paths(work, mapping):
         target = (work / target_name).resolve()
         if not target.is_relative_to(work.resolve()) or not target.is_file():
             raise ValueError(f'Mapping destination must be an existing file inside the staged submission: {target_name}')
-    for script in work.rglob('*.py'):
-        tokens, changed = [], False
-        for tok in tokenize.generate_tokens(io.StringIO(read_source(script)).readline):
-            if tok.type == tokenize.STRING:
-                try:
-                    value = ast.literal_eval(tok.string)
-                except (ValueError, SyntaxError):
-                    value = None
-                if isinstance(value, str) and value in mapping:
-                    replacement = str((work / mapping[value]).resolve())
-                    tok = tok._replace(string=repr(replacement)); changed = True
-                    events.append({'file': str(script.relative_to(work)), 'original': value, 'staged_destination': mapping[value]})
-            tokens.append(tok)
-        if changed:
-            script.write_text(tokenize.untokenize(tokens), encoding='utf-8')
+
+    def rewrite(source, filename, cell=None):
+        tokens, changes = [], []
+        try:
+            for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+                if tok.type == tokenize.STRING:
+                    try:
+                        value = ast.literal_eval(tok.string)
+                    except (ValueError, SyntaxError):
+                        value = None
+                    if isinstance(value, str) and value in mapping:
+                        replacement = str((work / mapping[value]).resolve())
+                        tok = tok._replace(string=repr(replacement))
+                        event = {'file': filename, 'original': value, 'staged_destination': mapping[value]}
+                        if cell is not None:
+                            event['cell'] = cell
+                        changes.append(event)
+                tokens.append(tok)
+        except (tokenize.TokenError, IndentationError):
+            # An unrelated malformed source must not prevent the selected entrypoint's run.
+            return source, []
+        return (tokenize.untokenize(tokens) if changes else source), changes
+
+    for script in sorted(work.rglob('*')):
+        if script.suffix == '.py':
+            source = read_source(script)
+            replaced, changes = rewrite(source, str(script.relative_to(work)))
+            if changes:
+                script.write_text(replaced, encoding='utf-8')
+                events.extend(changes)
+        elif script.suffix == '.ipynb':
+            try:
+                notebook = json.loads(script.read_text(encoding='utf-8-sig'))
+            except (ValueError, UnicodeError):
+                continue
+            changed = False
+            for index, cell in enumerate(notebook.get('cells', [])):
+                if cell.get('cell_type') != 'code':
+                    continue
+                source = ''.join(cell.get('source', []))
+                replaced, changes = rewrite(source, str(script.relative_to(work)), index + 1)
+                if changes:
+                    cell['source'] = replaced.splitlines(keepends=True)
+                    events.extend(changes); changed = True
+            if changed:
+                script.write_text(json.dumps(notebook), encoding='utf-8')
     return events
 
 
@@ -415,7 +446,9 @@ def classify_execution(returncode, log, timed_out=False):
     return 'EXECUTION FAILED — REVIEW LOG'
 
 
-def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, resources=None):
+def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, resources=None, mock=False, mock_fixtures=None, mock_words=18000):
+    if mock_fixtures and not mock:
+        raise ValueError('Mock fixtures require explicit mock mode')
     start = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='grader-run-') as tmp:
         work = Path(tmp) / 'submission'
@@ -433,6 +466,11 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
         changes = stage_paths(work, mapping or {})
         from prerequisites import audit_prerequisites, recovery_requirements
         prerequisites = audit_prerequisites(work)
+        mock_report = {'manifest': [], 'unresolved': [], 'skipped': [], 'path_changes': []}
+        if mock:
+            from mock_inputs import prepare_mock_inputs
+            mock_report = prepare_mock_inputs(work, mock_fixtures, mock_words)
+        mock_used = bool(mock_report['manifest'])
         output = Path(tmp) / ('executed.ipynb' if script.suffix == '.ipynb' else 'executed.html')
         if script.suffix == '.ipynb':
             command = [sys.executable, str(Path(__file__).with_name('notebook_worker.py')), str(script), str(output), str(timeout)]
@@ -440,7 +478,7 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
         else:
             _, meta = source_blocks(read_source(script), relative)
             if meta['syntax'] != 'OK':
-                return {'file': relative, 'status': 'SYNTAX ERROR', 'log': meta['syntax'], 'returncode': None, 'seconds': 0, 'staged_files': staged, 'path_changes': changes}
+                return {'file': relative, 'status': 'SYNTAX ERROR', 'log': meta['syntax'], 'returncode': None, 'seconds': 0, 'staged_files': staged, 'path_changes': changes, 'mock_requested': mock, 'mock_used': mock_used, 'mocks': mock_report}
             mode = 'Native marimo HTML export' if meta['marimo'] else 'Python script'
             command = [sys.executable, '-m', 'marimo', 'export', 'html', '--no-sandbox', str(script), '-o', str(output)] if meta['marimo'] else [sys.executable, str(script)]
         # No account/API credentials are inherited by student programs. This is
@@ -475,7 +513,16 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
             handle.seek(0, 2); size = handle.tell()
             handle.seek(max(0, size - MAX_TEXT))
             log = handle.read().decode('utf-8', errors='replace')
-        result = {'file': relative, 'mode': mode, 'status': classify_execution(proc.returncode, log, timed_out),
+        underlying_status = classify_execution(proc.returncode, log, timed_out)
+        status = underlying_status
+        if mock_used:
+            status = ('MOCK SMOKE TEST PASSED — ORIGINAL INPUTS UNVERIFIED' if proc.returncode == 0
+                      else 'MOCK SMOKE TEST TIMEOUT — INCONCLUSIVE' if timed_out
+                      else 'MOCK SMOKE TEST BLOCKED — SEE MISSING RESOURCES' if underlying_status.startswith('BLOCKED')
+                      else 'MOCK SMOKE TEST FAILED — ORIGINAL INPUTS UNVERIFIED')
+            log = 'MOCK SMOKE TEST: synthetic data or helper test doubles were substituted. Original-input behavior is NOT verified.\n' + log
+        result = {'file': relative, 'mode': mode, 'status': status, 'underlying_status': underlying_status,
+                  'test_scope': 'MOCK SMOKE TEST' if mock_used else 'PROVIDED INPUTS', 'mock_requested': mock, 'mock_used': mock_used, 'mocks': mock_report,
                   'returncode': proc.returncode, 'seconds': round(time.monotonic() - start, 2),
                   'log': log, 'log_truncated': size > MAX_TEXT, 'staged_files': staged, 'path_changes': changes,
                   'prerequisites': prerequisites, 'missing_resources': recovery_requirements(log) if proc.returncode != 0 else [],
@@ -485,11 +532,15 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
         if output.exists() and output.stat().st_size <= 30 * 1024**2:
             result['artifact'] = output.read_bytes()
             result['artifact_name'] = output.name
+            if mock_used:
+                from mock_inputs import label_mock_artifact
+                result['artifact'] = label_mock_artifact(result['artifact'], output.name)
+                result['artifact_name'] = 'mock-' + output.name
         return result
 
 
 def serializable_report(profile, rows):
     return {'schema_version': 1, 'assignment': profile, 'assignment_digest': profile_digest(profile),
-            'policy': 'No accuracy grading. Static matches are evidence candidates; completion requires review. Execution is independent.',
+            'policy': 'No accuracy grading. Static matches are evidence candidates; completion requires review. Execution is independent. Mock smoke-test success does not verify original-input behavior or completion.',
             'students': [{**row, 'completion': completion_status(row),
                           'execution': [{k: v for k, v in e.items() if k != 'artifact'} for e in row['execution']]} for row in rows]}
