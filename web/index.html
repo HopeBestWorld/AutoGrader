@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Review assignment submissions in your browser. No account or local installation required.">
+  <title>Assignment Submission Checker</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/browser@0.89.1/build/stlite.css">
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #fff; color: #172033; }
+    #loading { max-width: 680px; margin: 3rem auto; padding: 1rem; line-height: 1.6; }
+    #loading h1 { font-size: 1.6rem; }
+    #loading[data-error="true"] { border-left: 4px solid #b42318; }
+  </style>
+</head>
+<body>
+  <section id="loading" role="status" aria-live="polite">
+    <h1>Assignment Submission Checker</h1>
+    <p id="loading-message">Loading the browser app. The first visit downloads Python and can take a minute.</p>
+    <p>Review ZIP submissions, assignment requirements and supporting evidence without installing Python.</p>
+    <p>Files are processed in this browser session. This edition does not execute student programs. Export your report before closing the page.</p>
+  </section>
+  <div id="root"></div>
+  <script type="module">
+    const loading = document.getElementById("loading");
+    try {
+      const [{ mount }, response] = await Promise.all([
+        import("https://cdn.jsdelivr.net/npm/@stlite/browser@0.89.1/build/stlite.js"),
+        fetch(new URL("./__APP_BUNDLE__", document.baseURI))
+      ]);
+      if (!response.ok) throw new Error(`Could not load application bundle (${response.status}).`);
+      const app = await response.json();
+      await mount(app, document.getElementById("root"));
+      loading.hidden = true;
+    } catch (error) {
+      loading.dataset.error = "true";
+      document.getElementById("loading-message").textContent = "The app could not load. Check your Internet connection and browser support, then reload. Details: " + String(error);
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

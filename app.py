@@ -8,7 +8,7 @@ import zipfile
 
 import streamlit as st
 from prerequisites import preflight_submission
-from grader_core import (completion_status, group_submissions, load_profile, profile_digest,
+from grader_core import (native_execution_available, completion_status, group_submissions, load_profile, profile_digest,
                          review_folder, run_entrypoint, safe_extract, serializable_report,
                          unpack_nested, validate_profile)
 
@@ -18,6 +18,10 @@ ROOT = Path(__file__).parent
 def main():
     st.set_page_config(page_title='Assignment Submission Checker', layout='wide')
     st.title('Assignment Submission Checker')
+    native_execution = native_execution_available()
+    if not native_execution:
+        st.info('GitHub Pages edition: review submissions, syntax, assignment evidence and completion in your browser. Running student programs or mock tests requires the full Python edition; execution is unavailable here, not a failure of student code.')
+        st.caption('Uploads stay in this browser session; this app does not send them to an autograding server. Export your report before leaving. Expanded archives are limited to 128 MiB.')
     st.write('Check whether code runs and review whether every assignment part is answered. No accuracy scores are assigned.')
     st.caption('Execution and completion are separate. Evidence matches help you find answers; they do not establish completion or correctness.')
 
@@ -47,8 +51,11 @@ def main():
     resources = st.file_uploader('Student-specific files ZIP (optional)', type=['zip'], help='One folder per Canvas student key, e.g. smith_12345/book.txt or smith_12345/helper.py. Files are used only for that student, never shared with classmates.')
     st.caption('Check with original inputs, or select an explicitly labeled mock smoke test when inputs are missing. Mock success does not verify the original data, helper behavior, or completion.')
     with st.expander('Execution settings'):
-        st.info('Student programs run with this machine’s permissions. Use a disposable environment without sensitive files. Temporary folders and stripped child-process credentials do not provide a security sandbox.')
-        execution_mode = st.selectbox('Execution mode', ['Provided inputs', 'Mock inputs — smoke test only'])
+        if native_execution:
+            st.info('Student programs run with this machine’s permissions. Use a disposable environment without sensitive files. Temporary folders and stripped child-process credentials do not provide a security sandbox.')
+        else:
+            st.write('Execution is unavailable in the browser edition. Both provided-input and mock execution remain available in the native Python edition.')
+        execution_mode = st.selectbox('Execution mode', ['Provided inputs', 'Mock inputs — smoke test only'], disabled=not native_execution)
         mock_enabled = execution_mode.startswith('Mock')
         mock_fixtures = None
         mock_words = 18000
@@ -58,7 +65,7 @@ def main():
             mock_words = st.number_input('Synthetic corpus word target', min_value=100, max_value=50000, value=18000)
         timeout = st.number_input('Timeout per entrypoint (seconds)', min_value=5, max_value=14400, value=120)
         mappings_text = st.text_area('Optional exact path mappings (JSON)', '{}', help='Map a submitted literal path to a relative file in the execution copy, e.g. {"/Users/student/book.txt": "book.txt"}. No fuzzy matching, substitute data, or silent code repair is performed.')
-        consent = st.checkbox('Execute student code in this disposable environment', value=False)
+        consent = st.checkbox('Execute student code in this disposable environment', value=False, disabled=not native_execution)
     try:
         mapping = json.loads(mappings_text)
         if not isinstance(mapping, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()):
@@ -132,7 +139,7 @@ def main():
                         r['prerequisite_configuration'] = resource_id
         except Exception as exc:
             st.error(f'Prerequisite check failed: {exc}')
-    if st.button('Run selected entrypoints', disabled=not consent or not selected):
+    if st.button('Run selected entrypoints', disabled=not native_execution or not consent or not selected):
         try:
             with tempfile.TemporaryDirectory(prefix='grader-batch-') as tmp:
                 groups = group_submissions(io.BytesIO(archive.getvalue()), Path(tmp))
@@ -228,9 +235,10 @@ def main():
             if result.get('artifact'):
                 st.download_button('Download executed output', result['artifact'], f'{student}-{result["artifact_name"]}', key=f'artifact-{review_id}-{student}-{index}')
     table.dataframe([{'Student': r['student'], 'Candidate evidence': f'{sum(bool(q["evidence"]) for q in r["requirements"])}/{len(r["requirements"])} parts',
-                      'Completion': completion_status(r), 'Execution': '; '.join(f'{e["file"]}: {e["status"]}' for e in r['execution']) or 'NOT RUN'} for r in rows], hide_index=True)
+                      'Completion': completion_status(r), 'Execution': '; '.join(f'{e["file"]}: {e["status"]}' for e in r['execution']) or ('NOT RUN' if native_execution else 'UNAVAILABLE IN BROWSER')} for r in rows], hide_index=True)
     summary.caption('Candidate evidence is not a completion score. A student is complete only after all applicable parts are reviewed. Run results remain independent of those decisions.')
     report = serializable_report(profile, rows)
+    report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser review'}
     report['archive_sha256'] = hashlib.sha256(archive.getvalue()).hexdigest()
     st.download_button('Download report with review decisions and execution logs', json.dumps(report, indent=2), 'submission-report.json', 'application/json')
     st.caption('Download before leaving the session; results are held in memory. The original Canvas ZIP remains your source for all files and attachments.')

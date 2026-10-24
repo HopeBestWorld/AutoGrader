@@ -14,8 +14,6 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
-import signal
-import subprocess
 import sys
 import tempfile
 import time
@@ -27,6 +25,11 @@ MAX_MEMBERS = 10000
 MAX_TEXT = 2_000_000
 CANVAS = re.compile(r'^(.+?)(?:_LATE)?_(\d+)_(\d+)_(.+)$')
 STOPWORDS = set('the a an and or to of in for with your you is be as on at by this that from it use using part assignment should must include display results methods code provided notebook document text passages'.split())
+
+
+def native_execution_available():
+    """Browser review does not provide a native process/notebook runtime."""
+    return sys.platform not in ("emscripten", "wasi")
 
 
 def safe_extract(archive, destination, budget=None, depth=0):
@@ -47,8 +50,9 @@ def safe_extract(archive, destination, budget=None, depth=0):
                 raise ValueError(f'Unsafe ZIP entry: {name}')
             budget[0] += info.file_size
             budget[1] += 1
-            if budget[0] > MAX_BYTES or budget[1] > MAX_MEMBERS:
-                raise ValueError('ZIP exceeds 2 GiB / 10,000 entry limit')
+            byte_limit = MAX_BYTES if native_execution_available() else 128 * 1024**2
+            if budget[0] > byte_limit or budget[1] > MAX_MEMBERS:
+                raise ValueError(f'ZIP exceeds {byte_limit // 1024**2} MiB / 10,000 entry limit')
             if info.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
             else:
@@ -447,6 +451,10 @@ def classify_execution(returncode, log, timed_out=False):
 
 
 def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, resources=None, mock=False, mock_fixtures=None, mock_words=18000):
+    if not native_execution_available():
+        raise RuntimeError('EXECUTION UNAVAILABLE IN BROWSER: use the native Python edition for actual student-code or mock execution. This is not a student-code failure.')
+    import signal
+    import subprocess
     if mock_fixtures and not mock:
         raise ValueError('Mock fixtures require explicit mock mode')
     start = time.monotonic()

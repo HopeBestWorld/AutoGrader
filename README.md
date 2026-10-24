@@ -2,6 +2,27 @@
 
 Review whether Python, marimo, or Jupyter submissions **run** and whether **every assignment part is answered**, without scoring the accuracy of the work. The main app is assignment independent. Assignment 7 (Sentiment and Plot) and Assignment 8 (Reading Difficulty) have supplied checklists based on the assignment PDFs.
 
+## Free GitHub Pages deployment
+
+This repository includes a **Stlite browser edition**, using the same approach as OpenFLASH. GitHub Pages hosts static files, while Python/Streamlit run in the visitor's browser. No account, organization, paid backend, or local Python installation is required to use the published site.
+
+1. In this GitHub repository, open **Settings → Pages** and choose **GitHub Actions** as the build source. If you do not see those settings, a repository administrator must enable them. GitHub Pages is free for public repositories on GitHub Free; private repository Pages availability depends on the account plan. The site itself should not be treated as private storage.
+2. The **Deploy browser app to GitHub Pages** workflow runs on pushes to `main`. If enabling Pages after the push, open **Actions**, select that workflow, and click **Run workflow**. It builds from an explicit allowlist of app sources and assignment checklists; it never bundles uploaded submissions, reports, repository history, secrets or the Python environment.
+3. Open the deployment URL shown by the successful workflow/Pages settings. Subsequent pushes to `main` update the site automatically. For this repository, the standard project-site URL is `https://hopebestworld.github.io/AutoGrader/` (it is live only after a successful Pages deployment).
+
+**Browser capabilities:** assignment PDF/text/JSON checklists, Canvas ZIP grouping, syntax/code/prose inspection, evidence and completion decisions, provided-file prerequisite inventory, original-file inspection/downloads, and exported JSON reports. ZIP files are handled in the browser's virtual filesystem; the app does not upload them to an autograding backend. The site downloads Stlite/Python/packages from external CDNs. Prerequisite package availability describes the browser runtime, not a separate server.
+
+**Execution limitation:** this edition does not execute student programs, native marimo/Jupyter notebooks, or mock smoke tests. Those rely on native processes and packages that browser Python cannot supply. Execution controls are disabled and reports record the browser's capabilities; unavailable execution is not recorded as a student failure. Use the native edition below for actual runs. A backend would be needed to provide the full native execution workflow through a shared hosted site.
+
+Use a current desktop browser and allow time for the initial runtime download. Expanded archives are limited to 128 MiB in the browser edition. Reports and uploaded files are session memory; download reports before closing/reloading. The free Pages deployment has no persistent student-data storage, login system or paid services.
+
+To reproduce the static build:
+
+```bash
+python scripts/build_pages.py
+# Generated files are in dist/. Publish that directory with GitHub Pages.
+```
+
 ## Start
 
 Use Python 3.11+ and `uv`:
