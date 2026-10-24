@@ -84,6 +84,12 @@ document.getElementById('run-code').onclick=async()=>{
    }
   }
   render();
+  for(const input of document.querySelectorAll('#root input[type=file]')) {
+   if(input.closest('[data-testid="stFileUploader"]')?.textContent.includes('Browser execution results (automatic)')) {
+    const transfer=new DataTransfer();transfer.items.add(new File([JSON.stringify(report)],'browser-results.json',{type:'application/json'}));
+    input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));break;
+   }
+  }
   status('Browser checks completed. Review unsupported features, logs and candidate evidence; no parts were automatically marked complete.');
  }finally{button.disabled=false;document.getElementById('run-review').disabled=false;}
 };
@@ -126,4 +132,14 @@ document.addEventListener('change',event=>{
  } else if(label.includes('Assignment PDF, text checklist')) {
   mirrorUpload('run-instructions',input.files);
  }
+},true);
+
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('button');
+ if(!button||!button.closest('#root')||button.textContent.trim()!=='Run browser checks (with mocks)')return;
+ copyReviewChecklist();document.getElementById('run-mock').checked=true;
+ const details=document.getElementById('browser-runner-details');if(details)details.open=true;
+ if(document.getElementById('run-review').disabled)return;
+ await document.getElementById('run-review').onclick();
+ if(report&&!document.getElementById('run-code').disabled)await document.getElementById('run-code').onclick();
 },true);

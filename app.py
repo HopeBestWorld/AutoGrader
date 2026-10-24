@@ -50,6 +50,10 @@ def main():
     shared = st.file_uploader('Shared course-files ZIP (optional)', type=['zip'], help='Put instructor helpers at the ZIP root, e.g. readability_tools.py or sentiment_toolkit.py, and retain data/ subfolders. Files are copied into each disposable execution copy. Student files take precedence; conflicts are logged.')
     resources = st.file_uploader('Student-specific files ZIP (optional)', type=['zip'], help='One folder per Canvas student key, e.g. smith_12345/book.txt or smith_12345/helper.py. Files are used only for that student, never shared with classmates.')
     st.caption('Check with original inputs, or select an explicitly labeled mock smoke test when inputs are missing. Mock success does not verify the original data, helper behavior, or completion.')
+    browser_result_upload = None
+    if not native_execution:
+        with st.expander('Advanced: browser execution report import'):
+            browser_result_upload = st.file_uploader('Browser execution results (automatic)', type=['json'])
     with st.expander('Execution settings'):
         if native_execution:
             st.info('Student programs run with this machine’s permissions. Use a disposable environment without sensitive files. Temporary folders and stripped child-process credentials do not provide a security sandbox.')
@@ -77,9 +81,13 @@ def main():
         st.info('Choose an assignment checklist and upload a Canvas submissions ZIP to begin. Static review does not execute code.')
         return
 
+    browser_run_requested = st.button('Run browser checks (with mocks)', type='primary') if not native_execution else False
+    if browser_run_requested:
+        st.info('Browser execution started. Results will return to this table automatically. Open browser execution diagnostics below for progress.')
+
     # Bind results and reviewer decisions to exact archive and requirements.
     review_id = hashlib.sha256(archive.getvalue() + profile_digest(profile).encode()).hexdigest()
-    if st.button('Review submissions (no code execution)', type='primary'):
+    if st.button('Review submissions (no code execution)', type='primary') or browser_run_requested:
         try:
             with tempfile.TemporaryDirectory(prefix='grader-review-') as tmp:
                 groups = group_submissions(io.BytesIO(archive.getvalue()), Path(tmp))
@@ -99,11 +107,29 @@ def main():
         st.info('Run static review for this archive and checklist. Changing either requires a new review.')
         return
     rows = state['rows']
+    browser_results_applied = False
+    if browser_result_upload:
+        try:
+            incoming = json.loads(browser_result_upload.getvalue())
+            expected_hash = hashlib.sha256(archive.getvalue()).hexdigest()
+            if incoming.get('archive_sha256') != expected_hash or incoming.get('assignment_digest') != profile_digest(profile):
+                st.warning('Browser results belong to different submissions or checklist; run the current inputs again.')
+            else:
+                lookup = {r['student']:r for r in incoming.get('students',[])}
+                for current in rows:
+                    if current['student'] in lookup:
+                        current['execution'] = lookup[current['student']].get('execution',[])
+                browser_results_applied = any(r['execution'] for r in rows)
+        except (ValueError,TypeError,KeyError) as exc:
+            st.warning(f'Cannot read browser execution results: {exc}')
+
     if not rows:
         st.warning('No submissions found in this archive.')
         return
     st.subheader('Submission results')
-    if not native_execution:
+    if browser_results_applied:
+        st.info('Browser execution results are displayed below. These are browser/mock checks, not native marimo validation.')
+    elif not native_execution:
         st.warning('This table is static review only: code has NOT been run here. Missing inputs are not diagnosed by the NOT RUN label. Actual execution results and mock logs are in the browser execution panel above.')
         st.markdown('<a href="#browser-runner" target="_self">Go to browser execution and mock smoke tests ↑</a>', unsafe_allow_html=True)
     table = st.empty()

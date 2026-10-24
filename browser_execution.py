@@ -15,11 +15,25 @@ class UnsupportedBrowserFeature(Exception):
     pass
 
 
+class DisplayTabs:
+    def __init__(self,items):
+        self.items=items
+    def __getattr__(self,name):
+        raise UnsupportedBrowserFeature('Interactive tab state is unsupported in the browser adapter')
+
+class DisplayUI:
+    def tabs(self,items,**kwargs):
+        return DisplayTabs(items)
+    def __getattr__(self,name):
+        raise UnsupportedBrowserFeature(f'marimo.ui.{name} is not supported by the browser adapter')
+
+
 class DisplayMarimo(types.ModuleType):
     """Only display primitives are adapted; computational APIs are never stubbed."""
     def __init__(self):
         super().__init__('marimo')
         self.App = CellApp
+        self.ui = DisplayUI()
     def md(self, text):
         print(str(text)[:4000])
         return text
@@ -27,7 +41,7 @@ class DisplayMarimo(types.ModuleType):
         return items
     vstack = hstack
     def notebook_dir(self):
-        return os.getcwd()
+        return Path(os.getcwd())
     def __getattr__(self, name):
         raise UnsupportedBrowserFeature(f'marimo.{name} requires an unsupported interactive/native feature')
 
@@ -35,11 +49,16 @@ class DisplayMarimo(types.ModuleType):
 class CellApp:
     def __init__(self, **kwargs):
         self.cells = []
+        self.setup = contextlib.nullcontext()
     def cell(self, function=None, **options):
         def register(fn):
             self.cells.append((fn, options))
             return fn
         return register(function) if function else register
+    def function(self, fn):
+        return fn
+    def __getattr__(self,name):
+        raise UnsupportedBrowserFeature(f'app.{name} is not supported by the browser adapter')
     def run(self):
         raise UnsupportedBrowserFeature('Native marimo app.run is not available in the browser')
 
@@ -61,7 +80,15 @@ def run_source(source, filename):
         top.append(node)
         if isinstance(node, ast.FunctionDef) and any(isinstance(d, (ast.Call,ast.Attribute)) and 'cell' in ast.unparse(d) for d in node.decorator_list):
             names=[]
-            returns=[n for n in ast.walk(node) if isinstance(n,ast.Return) and n.value is not None]
+            # Nested helper functions have their own returns, not cell exports.
+            returns=[]
+            def collect(block):
+                for child in block:
+                    if isinstance(child,ast.Return) and child.value is not None: returns.append(child)
+                    elif not isinstance(child,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef,ast.Lambda)):
+                        for _,value in ast.iter_fields(child):
+                            if isinstance(value,list): collect([v for v in value if isinstance(v,ast.stmt)])
+            collect(node.body)
             if len(returns)>1:
                 raise UnsupportedBrowserFeature('Conditional or nested cell returns need native marimo review')
             if returns:
@@ -84,7 +111,7 @@ def run_source(source, filename):
         apps=[a for a in namespace.values() if isinstance(a,CellApp)]
         if len(apps)!=1 or len(apps[0].cells)!=len(cells):
             raise UnsupportedBrowserFeature('Notebook structure is not supported by the browser cell adapter')
-        pending=list(zip(apps[0].cells,cells)); values={}; executed=0
+        pending=list(zip(apps[0].cells,cells)); values={k:v for k,v in namespace.items() if not k.startswith('__')}; executed=0
         while pending:
             progressed=False
             for item in pending[:]:
@@ -137,6 +164,6 @@ def run_browser_entry(folder, entry, mock=False):
             os.chdir(original);sys.path[:]=old_path
     if mock and mocks['manifest']:
         status='MOCK '+status+' — ORIGINAL INPUTS UNVERIFIED'
-    return {'file':entry,'status':status,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'mock_requested':mock,
+    return {'file':entry,'status':status,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
             'missing_resources':recovery_requirements(buffer.getvalue()) if status.startswith('BLOCKED') or 'BLOCKED' in status else [],
             'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}

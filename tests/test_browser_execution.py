@@ -39,3 +39,33 @@ if __name__=="__main__":
     def test_duplicate_exports_fail(self):
         source='import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    x=1\n    return (x,)\n@app.cell\ndef _():\n    x=2\n    return (x,)'
         self.assertEqual(self.run_code(source)['status'],'BROWSER EXECUTION ERROR')
+
+    def test_setup_and_nested_function_returns_are_not_cell_exports(self):
+        source='''import marimo
+app=marimo.App()
+with app.setup:
+    base=40
+@app.function
+def add(x):
+    return x+2
+@app.cell
+def _(base,add):
+    def nested(x):
+        return x+1
+    assert nested(add(base))==43
+    return
+'''
+        result=self.run_code(source)
+        self.assertEqual(result['status'],'BROWSER RUN SUCCEEDED',result['log'])
+
+    def test_bundled_sentiment_helper_is_mocked_not_real(self):
+        source='from sentiment_toolkit import load_segments,load_lexicon,score_lexicon\nsegments=load_segments("book.txt")\nlexicon=load_lexicon("data/lex.csv")\nassert len(segments)>0\nassert score_lexicon("happy",lexicon)>0'
+        result=self.run_code(source,True)
+        self.assertIn('MOCK BROWSER RUN SUCCEEDED',result['status'],result['log'])
+        self.assertTrue(any(m['origin']=='BUNDLED MOCK HELPER' for m in result['mocks']['manifest']))
+
+    def test_display_tabs_evaluates_actual_body_without_mocking_computation(self):
+        source='import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    assert 2+2==4\n    tabs=mo.ui.tabs({"one":mo.md("body executed")})\n    return (tabs,)'
+        result=self.run_code(source)
+        self.assertEqual(result['status'],'BROWSER RUN SUCCEEDED',result['log'])
+        self.assertIn('body executed',result['log'])

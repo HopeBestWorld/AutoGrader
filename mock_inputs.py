@@ -136,6 +136,15 @@ def prepare_mock_inputs(work, fixtures=None, words=18000):
             shutil.copy2(source, target)
             manifest.append(manifest_entry(target, work, 'UPLOADED MOCK FIXTURE', kind='helper test double' if source.suffix == '.py' else 'data fixture'))
     audit = audit_prerequisites(work)
+    # Known, reviewed test double only. Never synthesize arbitrary helper APIs.
+    for item in audit['modules']:
+        if item['module']=='sentiment_toolkit' and item['status'].startswith('MISSING'):
+            target=work/'sentiment_toolkit.py'
+            fixture=Path(__file__).parent/'mock_helpers/sentiment_toolkit.py'
+            if fixture.is_file() and not target.exists():
+                shutil.copy2(fixture,target)
+                manifest.append(manifest_entry(target,work,'BUNDLED MOCK HELPER',kind='sentiment toolkit test double',limitations='Simplified lexicon methods only; not the original course library or model APIs.'))
+    audit=audit_prerequisites(work)
     columns = infer_columns(work)
     mappings = {}
     seen = set()

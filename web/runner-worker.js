@@ -17,6 +17,8 @@ onmessage = async ({data}) => {
     await py.runPythonAsync(`import sys,json,base64,io,tempfile\nfrom pathlib import Path\nsys.path.insert(0,'/app')\njob=json.loads(job_json)\nfrom grader_core import group_submissions,load_profile,review_folder,serializable_report\nfrom browser_execution import run_browser_entry\nroot=Path(tempfile.mkdtemp())\ngroups=group_submissions(io.BytesIO(base64.b64decode(job['archive'])),root)\n`);
     if (data.mode==='run') {
       const imports=py.runPython("'\\n'.join(p.read_text(errors='replace') for p in groups[job['student']].rglob('*.py'))");
+      await py.loadPackage(['pandas','numpy']);
+      await py.runPythonAsync("await micropip.install('altair')");
       await py.loadPackagesFromImports(imports); // Only Pyodide-supported distributions; no guessed PyPI installs.
     }
     const text=await py.runPythonAsync(`
@@ -27,6 +29,8 @@ if job['mode']=='review':
         profile=load_profile(Path('/app/assignments/assignment-'+job['preset']+'.json').read_bytes(),'checklist.json')
     rows=[review_folder(folder,profile,student) for student,folder in groups.items()]
     result=serializable_report(profile,rows)
+    import hashlib
+    result['archive_sha256']=hashlib.sha256(base64.b64decode(job['archive'])).hexdigest()
     result['runtime_capabilities']={'edition':'browser execution subset','native_execution':False}
 else:
     result=run_browser_entry(groups[job['student']],job['entry'],job.get('mock',False))
