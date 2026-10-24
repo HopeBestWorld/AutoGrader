@@ -4,7 +4,7 @@ panel.innerHTML=`<h2>Check submissions — free browser execution</h2>
 <label>Submissions ZIP <input id="run-zip" type="file" accept=".zip"></label>
 <label>Assignment instructions <input id="run-instructions" type="file" accept=".pdf,.txt,.md,.json"></label>
 <label>Fallback checklist <select id="run-preset"><option value="7">Assignment 7</option><option value="8">Assignment 8</option></select></label>
-<label><input id="run-mock" type="checkbox">Generate missing supported data files for mock smoke tests</label>
+<label><input id="run-mock" type="checkbox" checked>Generate missing supported data files for mock smoke tests (original inputs unverified)</label>
 <label>Worker time limit (includes runtime loading) <input id="run-timeout" type="number" min="15" max="600" value="120"> seconds</label>
 <p>Only upload code you are authorized to test. Browser workers are isolated from the review app but code can access the network. Mock or browser success does not verify original-data/native behavior or assignment completion.</p>
 <button id="run-review">1. Extract parts and review ZIP</button> <button id="run-code" disabled>2. Run detected entrypoints</button> <button id="run-download" disabled>Download combined report</button>
@@ -19,7 +19,8 @@ async function encoded(file) {
 }
 function job(payload) {
  return new Promise((resolve,reject)=>{
-  const worker=new Worker(new URL('./runner-worker.js',import.meta.url));
+  const workerUrl=new URL('./runner-worker.js',import.meta.url);workerUrl.searchParams.set('build',window.APP_BUILD||window.APP_BUNDLE);
+  const worker=new Worker(workerUrl);
   const seconds=Math.min(600,Math.max(15,Number(document.getElementById('run-timeout').value)||120));
   const timer=setTimeout(()=>{worker.terminate();resolve({status:'BROWSER TIMEOUT — INCONCLUSIVE',log:'Worker terminated; runtime loading is included in the limit.'});},seconds*1000);
   worker.onmessage=({data})=>{clearTimeout(timer);worker.terminate();data.ok?resolve(data.result):reject(Error(data.error));};
@@ -90,3 +91,39 @@ document.getElementById('run-download').onclick=()=>{
  const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));
  const a=document.createElement('a');a.href=url;a.download='browser-submission-report.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
+
+// Share the user's existing uploads with the execution panel instead of requiring
+// a second ZIP upload. Only user file-selection events inside Stlite are observed.
+function mirrorUpload(target, files) {
+ const transfer=new DataTransfer();
+ for(const file of files) transfer.items.add(file);
+ const input=document.getElementById(target);input.files=transfer.files;
+ input.dispatchEvent(new Event('change',{bubbles:true}));
+}
+function copyReviewChecklist() {
+ for(const textarea of document.querySelectorAll('#root textarea')) {
+  const field=textarea.closest('[data-testid="stTextArea"]');
+  if(field?.textContent.includes('Checklist JSON')) {
+   try {
+    const profile=JSON.parse(textarea.value);
+    if(profile.title && Array.isArray(profile.requirements)) {
+     mirrorUpload('run-instructions',[new File([JSON.stringify(profile)],'review-checklist.json',{type:'application/json'})]);
+     return;
+    }
+   } catch(error) { /* The editable checklist is temporarily incomplete. */ }
+  }
+ }
+}
+document.addEventListener('change',event=>{
+ const input=event.target;
+ if(!(input instanceof HTMLInputElement)||input.type!=='file'||!input.files.length)return;
+ const uploader=input.closest('#root [data-testid="stFileUploader"]');
+ if(!uploader)return;
+ const label=uploader.textContent;
+ if(label.includes('Canvas submissions ZIP')) {
+  mirrorUpload('run-zip',input.files);copyReviewChecklist();
+  status('Your ZIP and available checklist were copied from the Streamlit review panel. Click “1. Extract parts and review ZIP”, then “2. Run detected entrypoints” above.');
+ } else if(label.includes('Assignment PDF, text checklist')) {
+  mirrorUpload('run-instructions',input.files);
+ }
+},true);

@@ -20,7 +20,7 @@ def main():
     st.title('Assignment Submission Checker')
     native_execution = native_execution_available()
     if not native_execution:
-        st.info('GitHub Pages edition: this Streamlit panel provides evidence review and completion decisions. Use the execution panel above for supported browser Python checks. Native Python and native notebook execution remain unavailable, not a failure of student code.')
+        st.info('GitHub Pages edition: this Streamlit panel provides evidence review and completion decisions. Your ZIP and checklist are copied to the execution panel above. Click its “1. Extract parts and review ZIP”, then “2. Run detected entrypoints” buttons for actual browser checks. Native Python and native notebook execution remain unavailable, not a failure of student code.')
         st.caption('Uploads stay in this browser session; this app does not send them to an autograding server. Export your report before leaving. Expanded archives are limited to 128 MiB.')
     st.write('Check whether code runs and review whether every assignment part is answered. No accuracy scores are assigned.')
     st.caption('Execution and completion are separate. Evidence matches help you find answers; they do not establish completion or correctness.')
@@ -103,6 +103,9 @@ def main():
         st.warning('No submissions found in this archive.')
         return
     st.subheader('Submission results')
+    if not native_execution:
+        st.warning('This table is static review only: code has NOT been run here. Missing inputs are not diagnosed by the NOT RUN label. Actual execution results and mock logs are in the browser execution panel above.')
+        st.markdown('<a href="#browser-runner" target="_self">Go to browser execution and mock smoke tests ↑</a>', unsafe_allow_html=True)
     table = st.empty()
     summary = st.empty()
     eligible = [r['student'] for r in rows if not r['unmatched']]
@@ -235,7 +238,7 @@ def main():
             if result.get('artifact'):
                 st.download_button('Download executed output', result['artifact'], f'{student}-{result["artifact_name"]}', key=f'artifact-{review_id}-{student}-{index}')
     table.dataframe([{'Student': r['student'], 'Candidate evidence': f'{sum(bool(q["evidence"]) for q in r["requirements"])}/{len(r["requirements"])} parts',
-                      'Completion': completion_status(r), 'Execution': '; '.join(f'{e["file"]}: {e["status"]}' for e in r['execution']) or ('NOT RUN' if native_execution else 'UNAVAILABLE IN BROWSER')} for r in rows], hide_index=True)
+                      'Completion': completion_status(r), 'Execution': '; '.join(f'{e["file"]}: {e["status"]}' for e in r['execution']) or ('NOT RUN' if native_execution else 'NOT RUN — USE BROWSER EXECUTION PANEL')} for r in rows], hide_index=True)
     summary.caption('Candidate evidence is not a completion score. A student is complete only after all applicable parts are reviewed. Run results remain independent of those decisions.')
     report = serializable_report(profile, rows)
     report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser review'}

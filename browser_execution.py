@@ -113,7 +113,7 @@ def run_source(source, filename):
 
 
 def run_browser_entry(folder, entry, mock=False):
-    from prerequisites import prepared_submission
+    from prerequisites import prepared_submission, recovery_requirements
     from mock_inputs import prepare_mock_inputs
     buffer=io.StringIO(); detail={}; mocks={'manifest':[]}
     with prepared_submission(folder) as (work,_,_):
@@ -137,5 +137,6 @@ def run_browser_entry(folder, entry, mock=False):
             os.chdir(original);sys.path[:]=old_path
     if mock and mocks['manifest']:
         status='MOCK '+status+' — ORIGINAL INPUTS UNVERIFIED'
-    return {'file':entry,'status':status,'log':buffer.getvalue()[-2000000:], 'mocks':mocks,
+    return {'file':entry,'status':status,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'mock_requested':mock,
+            'missing_resources':recovery_requirements(buffer.getvalue()) if status.startswith('BLOCKED') or 'BLOCKED' in status else [],
             'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}

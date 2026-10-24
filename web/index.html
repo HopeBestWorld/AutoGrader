@@ -27,7 +27,8 @@
   <details style="margin:1rem"><summary>Streamlit evidence review and manual completion decisions</summary><div id="root"></div></details>
   <script type="module">
     window.APP_BUNDLE="./__APP_BUNDLE__";
-    import("./runner.js");
+    window.APP_BUILD="__BUILD_ID__";
+    import("./runner.js?build=__BUILD_ID__");
     const loading = document.getElementById("loading");
     try {
       const [{ mount }, response] = await Promise.all([
