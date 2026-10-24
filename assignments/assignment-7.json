@@ -1,0 +1,141 @@
+{
+  "title": "Assignment 7: Sentiment and Plot",
+  "requirements": [
+    {
+      "id": "part-1",
+      "title": "Part 1: Setup",
+      "description": "Create a marimo notebook and use the supplied sentiment lexicons. Small language models are optional.",
+      "keywords": [
+        "marimo",
+        "lexicon",
+        "bingliu",
+        "syuzhet",
+        "sentiment"
+      ],
+      "criteria": [
+        "A marimo notebook is supplied.",
+        "Required sentiment lexicon data is available; missing instructor resources are an environment blocker, not proof of incomplete student work."
+      ],
+      "evidence_types": [
+        "code"
+      ]
+    },
+    {
+      "id": "part-2",
+      "title": "Part 2: Find a work of fiction",
+      "description": "Select long-form fiction of at least 15,000 words, excluding A Christmas Carol. Non-English work needs its own lexicon and English translations.",
+      "keywords": [
+        "novel",
+        "fiction",
+        "gutenberg",
+        "words",
+        "read_text",
+        "load_segments",
+        "open"
+      ],
+      "criteria": [
+        "Identify the selected work and establish that it is eligible fiction, not A Christmas Carol.",
+        "Verify at least 15,000 words in the text actually analyzed (raw attachment counts are only supporting evidence).",
+        "For non-English work, review the supplied lexicon and English translations."
+      ],
+      "evidence_types": [
+        "code",
+        "prose"
+      ]
+    },
+    {
+      "id": "part-3",
+      "title": "Part 3: Make predictions",
+      "description": "Written predictions and reasoning before examining results. Source order cannot prove chronology.",
+      "keywords": [
+        "predict",
+        "expect",
+        "anticipate",
+        "hypothesis",
+        "predictions"
+      ],
+      "criteria": [
+        "Predictions address ranking positive versus negative passages.",
+        "Predictions discuss whether sentiment fits a single positive/negative axis.",
+        "Reasons are supplied; timing requires human review."
+      ],
+      "evidence_types": [
+        "prose"
+      ]
+    },
+    {
+      "id": "part-4",
+      "title": "Part 4: Display sentiment arcs",
+      "description": "Load and segment the document, apply basic lexicon-based sentiment analysis, display results using at least two methods, and discuss effectiveness and differences.",
+      "keywords": [
+        "load_segments",
+        "segment",
+        "score_lexicon",
+        "plot_timeseries",
+        "lexicon",
+        "bing",
+        "syuzhet",
+        "sentiment",
+        "smoothing"
+      ],
+      "criteria": [
+        "Document loading and segmentation are implemented.",
+        "Lexicon-based sentiment analysis is implemented.",
+        "Results from at least two methods are displayed; inspect actual outputs.",
+        "Written observations discuss effectiveness and differences."
+      ],
+      "evidence_types": [
+        "code",
+        "prose"
+      ]
+    },
+    {
+      "id": "part-5",
+      "title": "Part 5: Rank passages",
+      "description": "Sort passages by sentiment; inspect high, low and middle passages; discuss the evidence used, its effectiveness and differences.",
+      "keywords": [
+        "sort_by_score",
+        "sort_values",
+        "rank",
+        "positive",
+        "negative",
+        "middle",
+        "extremes",
+        "neutral"
+      ],
+      "criteria": [
+        "Passages are ranked by sentiment.",
+        "High, low AND middle passages are inspected.",
+        "Written discussion addresses what evidence methods use, its effectiveness and differences."
+      ],
+      "evidence_types": [
+        "code",
+        "prose"
+      ]
+    },
+    {
+      "id": "part-6",
+      "title": "Part 6: Discuss",
+      "description": "Reflect on the process: challenges, what worked well, and what did not.",
+      "keywords": [
+        "challenging",
+        "challenge",
+        "worked",
+        "limitations",
+        "reflect",
+        "reflection",
+        "difficult",
+        "struggled",
+        "learned"
+      ],
+      "criteria": [
+        "Challenges are discussed.",
+        "What worked well is discussed.",
+        "What did not work well is discussed."
+      ],
+      "evidence_types": [
+        "prose"
+      ]
+    }
+  ]
+}

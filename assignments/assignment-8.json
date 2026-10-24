@@ -1,0 +1,142 @@
+{
+  "title": "Assignment 8: Reading Difficulty",
+  "requirements": [
+    {
+      "id": "part-1",
+      "title": "Part 1: Setup",
+      "description": "Create a marimo notebook; install pronouncing and the spaCy en_core_web_sm model; use the supplied readability_tools.py.",
+      "keywords": [
+        "marimo",
+        "pronouncing",
+        "en_core_web_sm",
+        "readability_tools",
+        "spacy"
+      ],
+      "criteria": [
+        "A marimo notebook is supplied.",
+        "pronouncing and en_core_web_sm are available in the execution environment.",
+        "The instructor-provided readability_tools.py is available; its absence alone is not proof of missing student work."
+      ],
+      "evidence_types": [
+        "code"
+      ]
+    },
+    {
+      "id": "part-2",
+      "title": "Part 2: Find a text document",
+      "description": "Choose fiction or nonfiction of at least 15,000 words.",
+      "keywords": [
+        "gutenberg",
+        "document",
+        "words",
+        "read_text",
+        "load_segments",
+        "open"
+      ],
+      "criteria": [
+        "Identify the chosen long document; fiction and nonfiction are allowed.",
+        "Verify at least 15,000 words in the actual analyzed text."
+      ],
+      "evidence_types": [
+        "code",
+        "prose"
+      ]
+    },
+    {
+      "id": "part-3",
+      "title": "Part 3: Make predictions",
+      "description": "Written predictions and reasoning before examining results. Source order cannot prove chronology.",
+      "keywords": [
+        "predict",
+        "expect",
+        "anticipate",
+        "hypothesis",
+        "predictions"
+      ],
+      "criteria": [
+        "Predict the difficulty of the chosen document.",
+        "Explain expectations about the ability to analyze reading difficulty.",
+        "Prediction timing requires human review."
+      ],
+      "evidence_types": [
+        "prose"
+      ]
+    },
+    {
+      "id": "part-4",
+      "title": "Part 4: Measure difficulty",
+      "description": "Load and segment the document, calculate reading difficulty, display at least four metrics, and discuss effectiveness and differences.",
+      "keywords": [
+        "feature_table",
+        "BUILTIN_MEASURES",
+        "fk_grade",
+        "syllables_per_word",
+        "mean_dep_distance",
+        "mean_depth",
+        "clauses_per_sentence",
+        "flesch",
+        "readability",
+        "difficulty"
+      ],
+      "criteria": [
+        "Document loading and segmentation are implemented.",
+        "At least FOUR different calculated difficulty methods are displayed; inspect actual outputs.",
+        "Written discussion addresses effectiveness and differences."
+      ],
+      "evidence_types": [
+        "code",
+        "prose"
+      ]
+    },
+    {
+      "id": "part-5",
+      "title": "Part 5: Rank passages",
+      "description": "Rank passages under chosen methods; inspect extremes and middle; discuss factors, effectiveness and differences; identify passages ranked differently between metrics.",
+      "keywords": [
+        "sort_values",
+        "sort_by_score",
+        "rank",
+        "middle",
+        "hardest",
+        "easiest",
+        "disagreement",
+        "differently",
+        "passages"
+      ],
+      "criteria": [
+        "Passages are ranked using chosen metrics.",
+        "High, low AND middle passages are inspected.",
+        "Written discussion explains factors used and their effectiveness.",
+        "Specific passages scored or ranked differently between metrics are identified."
+      ],
+      "evidence_types": [
+        "code",
+        "prose"
+      ]
+    },
+    {
+      "id": "part-6",
+      "title": "Part 6: Discuss",
+      "description": "Reflect on the process: challenges, what worked well, and what did not.",
+      "keywords": [
+        "challenging",
+        "challenge",
+        "worked",
+        "limitations",
+        "reflect",
+        "reflection",
+        "difficult",
+        "struggled",
+        "learned"
+      ],
+      "criteria": [
+        "Challenges are discussed.",
+        "What worked well is discussed.",
+        "What did not work well is discussed."
+      ],
+      "evidence_types": [
+        "prose"
+      ]
+    }
+  ]
+}
