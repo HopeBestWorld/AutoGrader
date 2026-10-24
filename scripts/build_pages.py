@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_FILES = ('app.py', 'grader_core.py', 'prerequisites.py', 'mock_inputs.py',
+APP_FILES = ('app.py', 'browser_execution.py', 'grader_core.py', 'prerequisites.py', 'mock_inputs.py',
              'assignments/assignment-7.json', 'assignments/assignment-8.json')
 
 
@@ -23,6 +23,8 @@ def build(output):
     (output / bundle_name).write_bytes(content)
     html = (ROOT / 'web/index.html').read_text().replace('__APP_BUNDLE__', bundle_name)
     (output / 'index.html').write_text(html)
+    for asset in ('runner.js','runner-worker.js'):
+        (output/asset).write_text((ROOT/'web'/asset).read_text())
     (output / '.nojekyll').touch()
     return output
 

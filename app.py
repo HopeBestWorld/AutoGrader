@@ -20,7 +20,7 @@ def main():
     st.title('Assignment Submission Checker')
     native_execution = native_execution_available()
     if not native_execution:
-        st.info('GitHub Pages edition: review submissions, syntax, assignment evidence and completion in your browser. Running student programs or mock tests requires the full Python edition; execution is unavailable here, not a failure of student code.')
+        st.info('GitHub Pages edition: this Streamlit panel provides evidence review and completion decisions. Use the execution panel above for supported browser Python checks. Native Python and native notebook execution remain unavailable, not a failure of student code.')
         st.caption('Uploads stay in this browser session; this app does not send them to an autograding server. Export your report before leaving. Expanded archives are limited to 128 MiB.')
     st.write('Check whether code runs and review whether every assignment part is answered. No accuracy scores are assigned.')
     st.caption('Execution and completion are separate. Evidence matches help you find answers; they do not establish completion or correctness.')
