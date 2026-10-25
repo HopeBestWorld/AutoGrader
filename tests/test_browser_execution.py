@@ -29,7 +29,7 @@ if __name__=="__main__":
         self.assertEqual(result['status'],'BROWSER RUN SUCCEEDED',result['log'])
         self.assertEqual(result['cells_executed'],2)
     def test_unknown_ui_not_silently_stubbed(self):
-        result=self.run_code('import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    x=mo.ui.slider(0,10)\n    return (x,)')
+        result=self.run_code('import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    x=mo.ui.unknown_widget(0,10)\n    return (x,)')
         self.assertEqual(result['status'],'BLOCKED / UNSUPPORTED IN BROWSER')
     def test_missing_data_and_mock_scope(self):
         self.assertEqual(self.run_code('open("absent.txt").read()')['status'],'BLOCKED / UNSUPPORTED IN BROWSER')
@@ -69,3 +69,20 @@ def _(base,add):
         result=self.run_code(source)
         self.assertEqual(result['status'],'BROWSER RUN SUCCEEDED',result['log'])
         self.assertIn('body executed',result['log'])
+
+    def test_slider_runs_declared_default_and_records_scope(self):
+        result=self.run_code('import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    window=mo.ui.slider(1,25,value=8,label="Window")\n    assert window.value==8\n    return (window,)')
+        self.assertEqual(result['status'],'BROWSER RUN SUCCEEDED',result['log'])
+        self.assertEqual(result['widget_defaults_tested'][0]['value'],8)
+
+    def test_index_error_on_synthetic_data_is_inconclusive(self):
+        result=self.run_code('open("book.txt").read()\nraise KeyError(109)',True)
+        self.assertEqual(result['failure_kind'],'mock_input_or_code_mismatch')
+        self.assertIn('INCONCLUSIVE',result['status'])
+        self.assertIn('corpus size',result['action'])
+
+    def test_explicit_passage_index_sizes_mock_corpus_without_editing_code(self):
+        result=self.run_code('from sentiment_toolkit import load_segments\nsegments=load_segments("book.txt",words_per_segment=200)\ndef passage_evidence(index):\n    return segments.loc[index,"text"]\nassert passage_evidence(336)',True)
+        self.assertIn('MOCK BROWSER RUN SUCCEEDED',result['status'],result['log'])
+        self.assertEqual(result['mocks']['sizing']['largest_explicit_passage_index'],336)
+        self.assertLessEqual(result['mocks']['sizing']['effective_words'],200000)

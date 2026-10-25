@@ -5,6 +5,7 @@ panel.innerHTML=`<h2>Check submissions — free browser execution</h2>
 <label>Assignment instructions <input id="run-instructions" type="file" accept=".pdf,.txt,.md,.json"></label>
 <label>Fallback checklist <select id="run-preset"><option value="7">Assignment 7</option><option value="8">Assignment 8</option></select></label>
 <label><input id="run-mock" type="checkbox" checked>Generate missing supported data files for mock smoke tests (original inputs unverified)</label>
+<label>Synthetic corpus word target <input id="run-mock-words" type="number" min="100" max="200000" value="30000"> (increase for hard-coded passage indices; does not recreate the original text)</label>
 <label>Worker time limit (includes runtime loading) <input id="run-timeout" type="number" min="15" max="600" value="120"> seconds</label>
 <p>Only upload code you are authorized to test. Browser workers are isolated from the review app but code can access the network. Mock or browser success does not verify original-data/native behavior or assignment completion.</p>
 <button id="run-review">1. Extract parts and review ZIP</button> <button id="run-code" disabled>2. Run detected entrypoints</button> <button id="run-download" disabled>Download combined report</button>
@@ -22,7 +23,7 @@ function job(payload) {
   const workerUrl=new URL('./runner-worker.js',import.meta.url);workerUrl.searchParams.set('build',window.APP_BUILD||window.APP_BUNDLE);
   const worker=new Worker(workerUrl);
   const seconds=Math.min(600,Math.max(15,Number(document.getElementById('run-timeout').value)||120));
-  const timer=setTimeout(()=>{worker.terminate();resolve({status:'BROWSER TIMEOUT — INCONCLUSIVE',log:'Worker terminated; runtime loading is included in the limit.'});},seconds*1000);
+  const timer=setTimeout(()=>{worker.terminate();resolve({file:payload.entry||'',status:'BROWSER TIMEOUT — INCONCLUSIVE',log:'Worker terminated; runtime loading is included in the limit.'});},seconds*1000);
   worker.onmessage=({data})=>{clearTimeout(timer);worker.terminate();data.ok?resolve(data.result):reject(Error(data.error));};
   worker.onerror=error=>{clearTimeout(timer);worker.terminate();reject(Error(error.message));};
   worker.postMessage({...inputs,...payload,bundle:window.APP_BUNDLE});
@@ -48,7 +49,7 @@ function render(){
    p.textContent=part.title+': '+(part.evidence.length?(part.missing_evidence_types.length?'PARTIAL CANDIDATE EVIDENCE':'CANDIDATE EVIDENCE FOUND'):'NO MATCH FOUND')+' — needs review';section.append(p);
    for(const evidence of part.evidence){const pre=document.createElement('pre');pre.textContent=evidence.file+':'+evidence.line+'\n'+evidence.text;section.append(pre);}
   }
-  for(const result of student.execution){const pre=document.createElement('pre');pre.textContent=JSON.stringify(result,null,2);section.append(pre);}
+  for(const result of student.execution){const pre=document.createElement('pre');pre.textContent=(result.action?('Next step: '+result.action+'\n\n'):'')+JSON.stringify(result,null,2);section.append(pre);}
   root.append(section);
  }
 }
@@ -73,12 +74,12 @@ document.getElementById('run-code').onclick=async()=>{
   for(const row of report.students){
    if(!row.run_selected)continue;
    row.execution=[];
-   if(row.unmatched){row.execution.push({status:'NOT RUN — UNKNOWN STUDENT GROUP'});continue;}
+   if(row.unmatched){row.execution.push({file:'',status:'NOT RUN — UNKNOWN STUDENT GROUP'});continue;}
    const entries=row.browser_entrypoints;
-   if(!entries.length)row.execution.push({status:'NOT RUN — NO UNAMBIGUOUS SUPPORTED ENTRYPOINT'});
+   if(!entries.length)row.execution.push({file:'',status:'NOT RUN — NO UNAMBIGUOUS SUPPORTED ENTRYPOINT'});
    for(const entry of entries){
     status('Running '+row.student+' / '+entry+' in a fresh browser worker…');
-    try{row.execution.push(await job({mode:'run',student:row.student,entry,mock}));}
+    try{row.execution.push(await job({mode:'run',student:row.student,entry,mock,mock_words:Math.min(200000,Math.max(100,Number(document.getElementById('run-mock-words').value)||30000))}));}
     catch(error){row.execution.push({file:entry,status:'BROWSER RUNTIME BLOCKED',log:String(error)});}
     render();
    }

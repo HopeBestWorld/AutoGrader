@@ -547,6 +547,20 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
         return result
 
 
+def normalize_execution_results(results):
+    """Accept old worker reports without crashing on absent entrypoint metadata."""
+    if not isinstance(results,list) or any(not isinstance(e,dict) for e in results):
+        raise ValueError('Execution results must be a list of objects')
+    normalized=[]
+    for result in results:
+        row=dict(result)
+        row['file']=str(row.get('file') or '')
+        row['status']=str(row.get('status') or 'RESULT INCOMPLETE — REVIEW')
+        row['log']=str(row.get('log') or '')
+        normalized.append(row)
+    return normalized
+
+
 def serializable_report(profile, rows):
     return {'schema_version': 1, 'assignment': profile, 'assignment_digest': profile_digest(profile),
             'policy': 'No accuracy grading. Static matches are evidence candidates; completion requires review. Execution is independent. Mock smoke-test success does not verify original-input behavior or completion.',

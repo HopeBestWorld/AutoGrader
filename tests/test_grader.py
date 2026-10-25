@@ -165,4 +165,12 @@ class GraderTests(unittest.TestCase):
         self.assertEqual(report['students'][0]['completion'], 'NEEDS REVIEW')
 
 
+class ResultNormalizationTests(unittest.TestCase):
+    def test_old_and_fileless_worker_results_remain_displayable(self):
+        from grader_core import normalize_execution_results
+        result=normalize_execution_results([{'status':'NOT RUN'},{'status':'TIMEOUT','file':None}])
+        self.assertTrue(all(e['file']=='' for e in result))
+        self.assertEqual(result[0]['status'],'NOT RUN')
+        self.assertEqual(result[1]['log'],'')
+
 if __name__ == '__main__': unittest.main()

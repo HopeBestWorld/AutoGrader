@@ -33,7 +33,7 @@ class PagesTests(unittest.TestCase):
             self.assertEqual(before,bundle.read_bytes())
 
     def test_streamlit_browser_button_and_result_import(self):
-        script=UI.replace("    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None", "    if label == 'Browser execution results (automatic)' and st.session_state.get('inject_result'):\n        import json,hashlib\n        from grader_core import load_profile,profile_digest\n        from pathlib import Path\n        profile=load_profile((Path(app.__file__).parent/'assignments/assignment-7.json').read_bytes(),'a.json')\n        payload={'archive_sha256':hashlib.sha256(buf.getvalue()).hexdigest(),'assignment_digest':profile_digest(profile),'students':[{'student':'demo_123','execution':[{'file':'main.py','status':'BROWSER RUN SUCCEEDED','log':'actual result'}]}]}\n        return Upload(json.dumps(payload).encode())\n    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None")
+        script=UI.replace("    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None", "    if label == 'Browser execution results (automatic)' and st.session_state.get('inject_result'):\n        import json,hashlib\n        from grader_core import load_profile,profile_digest\n        from pathlib import Path\n        profile=load_profile((Path(app.__file__).parent/'assignments/assignment-7.json').read_bytes(),'a.json')\n        payload={'archive_sha256':hashlib.sha256(buf.getvalue()).hexdigest(),'assignment_digest':profile_digest(profile),'students':[{'student':'demo_123','execution':[{'status':'BROWSER TIMEOUT — INCONCLUSIVE','log':'worker timeout'}]}]}\n        return Upload(json.dumps(payload).encode())\n    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None")
         script=script.replace('app.main()',"from unittest.mock import patch\nwith patch('app.native_execution_available', return_value=False):\n    app.main()")
         at=AppTest.from_string(script).run(timeout=30)
         next(b for b in at.button if b.label=='Run browser checks (with mocks)').click().run(timeout=30)
@@ -41,7 +41,8 @@ class PagesTests(unittest.TestCase):
         at.session_state['inject_result']=True
         at.run()
         self.assertFalse(at.exception)
-        self.assertEqual(at.session_state['report']['rows'][0]['execution'][0]['status'],'BROWSER RUN SUCCEEDED')
+        self.assertEqual(at.session_state['report']['rows'][0]['execution'][0]['status'],'BROWSER TIMEOUT — INCONCLUSIVE')
+        self.assertEqual(at.session_state['report']['rows'][0]['execution'][0]['file'],'')
 
     def test_native_runner_explicitly_refuses_browser_execution(self):
         with patch('grader_core.native_execution_available',return_value=False):

@@ -111,12 +111,34 @@ def manifest_entry(path, work, origin, **extra):
             'sha256': hashlib.sha256(data).hexdigest(), **extra}
 
 
+def infer_corpus_size(work, minimum):
+    """Bound synthetic text size using explicit segment sizes/passage indices only."""
+    from prerequisites import sources
+    indices=[]; sizes=[200]
+    for _,source in sources(work):
+        try: tree=ast.parse(source)
+        except SyntaxError: continue
+        for node in ast.walk(tree):
+            candidates=[]
+            if isinstance(node,ast.Subscript) and isinstance(node.value,ast.Attribute) and node.value.attr in ('loc','iloc'):
+                candidates=[node.slice.elts[0] if isinstance(node.slice,ast.Tuple) else node.slice]
+            if isinstance(node,ast.Call):
+                name=node.func.id if isinstance(node.func,ast.Name) else getattr(node.func,'attr','')
+                if re.search(r'passage|evidence',name,re.I) and node.args:candidates.append(node.args[0])
+                for kw in node.keywords:
+                    if kw.arg in ('words_per_segment','words_per_chunk','segment_size','passage_size') and isinstance(kw.value,ast.Constant) and isinstance(kw.value.value,int) and 1<=kw.value.value<=5000:sizes.append(kw.value.value)
+            for value in candidates:
+                if isinstance(value,ast.Constant) and isinstance(value.value,int) and 0<=value.value<=10000:indices.append(value.value)
+    needed=max(minimum,int((max(indices)+1)*max(sizes)*1.25)+5000) if indices else minimum
+    return {'minimum_words':minimum,'effective_words':min(needed,200000),'largest_explicit_passage_index':max(indices) if indices else None,'assumed_words_per_segment':max(sizes),'capped':needed>200000,'scope':'Synthetic capacity hint only; this does not reproduce original text or guarantee its schema/structure.'}
+
+
 def prepare_mock_inputs(work, fixtures=None, words=18000):
     """Fill absent inputs only. Never generate Python implementations or edit originals."""
     from prerequisites import audit_prerequisites
     from grader_core import stage_paths
-    if not 100 <= words <= 50000:
-        raise ValueError('Mock corpus length must be between 100 and 50,000 words')
+    if not 100 <= words <= 200000:
+        raise ValueError('Mock corpus length must be between 100 and 200,000 words')
     work = Path(work).resolve()
     manifest, unresolved, skipped = [], [], []
     if fixtures:
@@ -145,6 +167,8 @@ def prepare_mock_inputs(work, fixtures=None, words=18000):
                 shutil.copy2(fixture,target)
                 manifest.append(manifest_entry(target,work,'BUNDLED MOCK HELPER',kind='sentiment toolkit test double',limitations='Simplified lexicon methods only; not the original course library or model APIs.'))
     audit=audit_prerequisites(work)
+    sizing=infer_corpus_size(work,words)
+    words=sizing['effective_words']
     columns = infer_columns(work)
     mappings = {}
     seen = set()
@@ -186,7 +210,7 @@ def prepare_mock_inputs(work, fixtures=None, words=18000):
         if item['status'].startswith('MISSING'):
             unresolved.append({**item, 'reason': 'Unknown Python helpers are not invented. Supply a compatible test double in the mock-fixtures ZIP or the original module.'})
     unresolved.extend({**i, 'reason': 'Dynamic input paths cannot be generated automatically; supply a fixture or exact mapping.'} for i in audit['dynamic_inputs'])
-    return {'manifest': manifest, 'unresolved': unresolved, 'skipped': skipped, 'path_changes': changes,
+    return {'manifest': manifest, 'sizing':sizing, 'unresolved': unresolved, 'skipped': skipped, 'path_changes': changes,
             'limitations': ['Synthetic data and helper test doubles validate only this smoke-test path, not original inputs, real helper behavior, analysis validity, or assignment completion.',
                            'Inferred table schemas/types and corpus text may be incompatible with a submission. A mock failure alone does not establish a failure with real inputs.']}
 

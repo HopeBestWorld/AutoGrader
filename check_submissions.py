@@ -25,8 +25,8 @@ def main():
     args = parser.parse_args()
     if args.mock_fixtures and not args.mock:
         parser.error('--mock-fixtures requires --mock')
-    if not 100 <= args.mock_words <= 50000:
-        parser.error('--mock-words must be between 100 and 50000')
+    if not 100 <= args.mock_words <= 200000:
+        parser.error('--mock-words must be between 100 and 200000')
     if args.timeout < 1:
         parser.error('--timeout must be positive')
     profile = load_profile(args.assignment.read_bytes(), args.assignment.name)

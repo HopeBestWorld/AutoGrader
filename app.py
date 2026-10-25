@@ -8,7 +8,7 @@ import zipfile
 
 import streamlit as st
 from prerequisites import preflight_submission
-from grader_core import (native_execution_available, completion_status, group_submissions, load_profile, profile_digest,
+from grader_core import (normalize_execution_results, native_execution_available, completion_status, group_submissions, load_profile, profile_digest,
                          review_folder, run_entrypoint, safe_extract, serializable_report,
                          unpack_nested, validate_profile)
 
@@ -66,7 +66,7 @@ def main():
         if mock_enabled:
             st.warning('Missing text, CSV/TSV, JSON/JSONL and gzip inputs can be synthesized. Schemas are guesses. Unknown Python helpers need a compatible mock implementation; errors and assertions remain active. Results will be labeled as mock tests, not verified original-data runs.')
             mock_fixtures = st.file_uploader('Mock-fixtures ZIP (optional: data files or helper test doubles)', type=['zip'], help='Preserve the paths relative to the submission root. Real files and installed modules take precedence. Every copied mock is recorded. Unknown helper APIs are never replaced automatically.')
-            mock_words = st.number_input('Synthetic corpus word target', min_value=100, max_value=50000, value=18000)
+            mock_words = st.number_input('Synthetic corpus word target', min_value=100, max_value=200000, value=18000)
         timeout = st.number_input('Timeout per entrypoint (seconds)', min_value=5, max_value=14400, value=120)
         mappings_text = st.text_area('Optional exact path mappings (JSON)', '{}', help='Map a submitted literal path to a relative file in the execution copy, e.g. {"/Users/student/book.txt": "book.txt"}. No fuzzy matching, substitute data, or silent code repair is performed.')
         consent = st.checkbox('Execute student code in this disposable environment', value=False, disabled=not native_execution)
@@ -118,7 +118,7 @@ def main():
                 lookup = {r['student']:r for r in incoming.get('students',[])}
                 for current in rows:
                     if current['student'] in lookup:
-                        current['execution'] = lookup[current['student']].get('execution',[])
+                        current['execution'] = normalize_execution_results(lookup[current['student']].get('execution',[]))
                 browser_results_applied = any(r['execution'] for r in rows)
         except (ValueError,TypeError,KeyError) as exc:
             st.warning(f'Cannot read browser execution results: {exc}')
@@ -251,7 +251,7 @@ def main():
             req['review'] = st.selectbox('Completion decision', decisions, index=decisions.index(req['review']), key=f'decision-{key}')
             req['review_note'] = st.text_area('Reviewer note', req['review_note'], key=f'note-{key}')
     for index, result in enumerate(row['execution']):
-        with st.expander(f'{result["file"]}: {result["status"]}'):
+        with st.expander(f'{result.get("file") or "(no entrypoint)"}: {result.get("status", "RESULT INCOMPLETE")}'):
             if result.get('mock_used'):
                 st.warning('MOCK SMOKE TEST ONLY — original-input behavior and assignment completion are unverified.')
                 st.write('Substitutions used:')
@@ -264,7 +264,7 @@ def main():
             if result.get('artifact'):
                 st.download_button('Download executed output', result['artifact'], f'{student}-{result["artifact_name"]}', key=f'artifact-{review_id}-{student}-{index}')
     table.dataframe([{'Student': r['student'], 'Candidate evidence': f'{sum(bool(q["evidence"]) for q in r["requirements"])}/{len(r["requirements"])} parts',
-                      'Completion': completion_status(r), 'Execution': '; '.join(f'{e["file"]}: {e["status"]}' for e in r['execution']) or ('NOT RUN' if native_execution else 'NOT RUN — USE BROWSER EXECUTION PANEL')} for r in rows], hide_index=True)
+                      'Completion': completion_status(r), 'Execution': '; '.join(f'{e.get("file") or "(no entrypoint)"}: {e.get("status", "RESULT INCOMPLETE")}' for e in r['execution']) or ('NOT RUN' if native_execution else 'NOT RUN — USE BROWSER EXECUTION PANEL')} for r in rows], hide_index=True)
     summary.caption('Candidate evidence is not a completion score. A student is complete only after all applicable parts are reviewed. Run results remain independent of those decisions.')
     report = serializable_report(profile, rows)
     report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser review'}

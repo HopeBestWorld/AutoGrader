@@ -33,7 +33,7 @@ if job['mode']=='review':
     result['archive_sha256']=hashlib.sha256(base64.b64decode(job['archive'])).hexdigest()
     result['runtime_capabilities']={'edition':'browser execution subset','native_execution':False}
 else:
-    result=run_browser_entry(groups[job['student']],job['entry'],job.get('mock',False))
+    result=run_browser_entry(groups[job['student']],job['entry'],job.get('mock',False),job.get('mock_words',30000))
 json.dumps(result)
 `);
     postMessage({ok:true,result:JSON.parse(text)});

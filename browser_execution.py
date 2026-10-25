@@ -21,7 +21,21 @@ class DisplayTabs:
     def __getattr__(self,name):
         raise UnsupportedBrowserFeature('Interactive tab state is unsupported in the browser adapter')
 
+class DisplayValue:
+    def __init__(self,value): self.value=value
+    def __bool__(self):
+        raise UnsupportedBrowserFeature('Read the widget .value explicitly')
+
 class DisplayUI:
+    def __init__(self): self.assumptions=[]
+    def slider(self,start=None,stop=None,step=None,value=None,**kwargs):
+        selected=value if value is not None else start
+        if not isinstance(selected,(int,float)):
+            raise UnsupportedBrowserFeature('Only numeric sliders with a declared default are supported')
+        if start is not None and selected<start or stop is not None and selected>stop:
+            raise ValueError('Slider default is outside its declared bounds')
+        self.assumptions.append({'widget':'slider','value':selected,'label':str(kwargs.get('label','')),'scope':'Only the declared initial value was tested; interaction was not tested.'})
+        return DisplayValue(selected)
     def tabs(self,items,**kwargs):
         return DisplayTabs(items)
     def __getattr__(self,name):
@@ -133,20 +147,20 @@ def run_source(source, filename):
                 pending.remove(item);executed+=1;progressed=True
             if not progressed:
                 raise ValueError('Unresolved or cyclic cell dependencies: '+', '.join(str(inspect.signature(i[0][0])) for i in pending))
-        return {'mode':'Browser marimo cell adapter (not native export)', 'cells_executed':executed}
+        return {'mode':'Browser marimo cell adapter (not native export)', 'cells_executed':executed, 'widget_defaults_tested':module.ui.assumptions}
     finally:
         if previous is None: sys.modules.pop('marimo',None)
         else: sys.modules['marimo']=previous
 
 
-def run_browser_entry(folder, entry, mock=False):
+def run_browser_entry(folder, entry, mock=False, mock_words=18000):
     from prerequisites import prepared_submission, recovery_requirements
     from mock_inputs import prepare_mock_inputs
-    buffer=io.StringIO(); detail={}; mocks={'manifest':[]}
+    buffer=io.StringIO(); detail={}; mocks={'manifest':[]}; failure_kind=None; exception_type=None; action=None
     with prepared_submission(folder) as (work,_,_):
         original=os.getcwd(); old_path=sys.path[:]
         try:
-            if mock: mocks=prepare_mock_inputs(work)
+            if mock: mocks=prepare_mock_inputs(work,words=mock_words)
             script=work/entry
             os.chdir(script.parent);sys.path.insert(0,str(work));sys.path.insert(0,str(script.parent))
             with contextlib.redirect_stdout(buffer),contextlib.redirect_stderr(buffer):
@@ -156,14 +170,22 @@ def run_browser_entry(folder, entry, mock=False):
             status='BROWSER RUN SUCCEEDED'
         except (UnsupportedBrowserFeature,ModuleNotFoundError,ImportError,FileNotFoundError,OSError) as exc:
             status='BLOCKED / UNSUPPORTED IN BROWSER'
+            exception_type=type(exc).__name__
+            failure_kind='unsupported_browser_feature' if isinstance(exc,UnsupportedBrowserFeature) else 'missing_dependency' if isinstance(exc,(ImportError,ModuleNotFoundError)) else 'missing_input_or_environment'
+            action='Inspect the exception. Supply the missing resource or use a compatible browser dependency; this is not a demonstrated student-code failure.'
             buffer.write(traceback.format_exc())
         except BaseException as exc:
             status='BROWSER EXECUTION ERROR'
+            exception_type=type(exc).__name__
+            failure_kind='mock_input_or_code_mismatch' if mocks['manifest'] and isinstance(exc,(KeyError,IndexError)) else 'runtime_error'
+            action='Increase synthetic corpus size or supply schema-compatible fixtures; the original data may contain rows or keys absent from mocks.' if failure_kind=='mock_input_or_code_mismatch' else 'Inspect the traceback: a mock run alone cannot establish behavior with original inputs.'
             buffer.write(traceback.format_exc())
         finally:
             os.chdir(original);sys.path[:]=old_path
+    if failure_kind=='mock_input_or_code_mismatch':
+        status='INPUT / CODE MISMATCH — INCONCLUSIVE'
     if mock and mocks['manifest']:
         status='MOCK '+status+' — ORIGINAL INPUTS UNVERIFIED'
-    return {'file':entry,'status':status,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
+    return {'file':entry,'status':status, 'failure_kind':failure_kind,'exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
             'missing_resources':recovery_requirements(buffer.getvalue()) if status.startswith('BLOCKED') or 'BLOCKED' in status else [],
             'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}
