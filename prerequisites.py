@@ -11,7 +11,7 @@ import tempfile
 PACKAGE_NAMES = {'sklearn': 'scikit-learn', 'PIL': 'Pillow', 'bs4': 'beautifulsoup4',
                  'cv2': 'opencv-python', 'yaml': 'PyYAML', 'sentence_transformers': 'sentence-transformers'}
 READERS = {'read_csv', 'read_table', 'read_excel', 'read_parquet', 'read_json',
-           'load_segments', 'load_lexicon', 'load_emolex'}
+           'load_segments', 'load_lexicon', 'load_emolex', 'load_book'}
 
 
 def sources(folder):
@@ -33,14 +33,35 @@ def literal_path(node, values):
         return node.value
     if isinstance(node, ast.Name):
         return values.get(node.id)
+    if isinstance(node,ast.BoolOp) and isinstance(node.op,ast.Or):
+        for candidate in node.values:
+            value=literal_path(candidate,values)
+            if value:return value
+    if isinstance(node,ast.IfExp):
+        left,right=literal_path(node.body,values),literal_path(node.orelse,values)
+        return left if left is not None else right
     if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Div, ast.Add)):
         left, right = literal_path(node.left, values), literal_path(node.right, values)
         if left is not None and right is not None:
             return str(Path(left) / right) if isinstance(node.op, ast.Div) else left + right
+    if isinstance(node,ast.Attribute):
+        value=literal_path(node.value,values)
+        if value is not None and node.attr=='parent':return str(Path(value).parent)
+        if value is not None and node.attr=='value':return value
     if isinstance(node, ast.Call):
         name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, 'attr', '')
         if name in ('Path', 'str') and node.args:
             return literal_path(node.args[0], values)
+        if name=='cwd':return '.'
+        if name=='strip' and isinstance(node.func,ast.Attribute):
+            value=literal_path(node.func.value,values)
+            return value.strip() if isinstance(value,str) else None
+        if name=='home' and isinstance(node.func,ast.Attribute):return str(Path.home())
+        if name=='next' and len(node.args)>1:return literal_path(node.args[1],values)
+        if name in ('resolve','absolute') and isinstance(node.func,ast.Attribute):
+            return literal_path(node.func.value,values)
+        if name=='text' and isinstance(node.func,ast.Attribute) and isinstance(node.func.value,ast.Attribute) and node.func.value.attr=='ui':
+            return next((literal_path(k.value,values) for k in node.keywords if k.arg=='value'),None)
         if name == 'notebook_dir':
             return '.'
         if name == 'join' and node.args:
@@ -59,7 +80,7 @@ def audit_prerequisites(folder):
         except SyntaxError:
             continue
         relative = str(path.relative_to(root))
-        values = {}
+        values = {'__file__':str(path)}
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 value = literal_path(node.value, values)
@@ -117,6 +138,46 @@ def audit_prerequisites(folder):
                           else 'AVAILABLE' if target.is_file() else 'MISSING OR GENERATED AT RUNTIME')
             inputs.append({'source': relative, 'line': node.lineno, 'path': value, 'reader': name, 'status': status,
                            'action': '' if status == 'AVAILABLE' else 'Supply the actual input in the shared or student-specific files ZIP; use an exact path mapping if needed. Generated/conditional inputs may not need supplying.'})
+        # Concrete Path literals are also prerequisites for pre-read is_file guards.
+        parents={id(child):node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            parent=parents.get(id(node))
+            call=parents.get(id(parent)) if parent is not None else None
+            if isinstance(parent,ast.Attribute) and parent.attr in ('open','write_text','write_bytes') and isinstance(call,ast.Call):
+                mode=next((literal_path(k.value,values) for k in call.keywords if k.arg=='mode'),literal_path(call.args[0],values) if call.args else None)
+                if parent.attr.startswith('write_') or mode and any(c in mode for c in 'wax'):continue
+            dictionary=parents.get(id(node))
+            assignment=parents.get(id(dictionary)) if dictionary is not None else None
+            declared_lexicon_input=isinstance(dictionary,ast.Dict) and isinstance(assignment,ast.Assign) and any(isinstance(t,ast.Name) and 'lexicon' in t.id.lower() for t in assignment.targets)
+            if declared_lexicon_input and isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='Path' and node.args:
+                value=literal_path(node.args[0],values)
+                if value and Path(value).suffix.lower() in ('.txt','.csv','.tsv','.html','.htm'):
+                    target=(path.parent/value).resolve()
+                    status='AVAILABLE' if target.is_file() else 'MISSING OR GENERATED AT RUNTIME'
+                    inputs.append({'source':relative,'line':node.lineno,'path':value,'reader':'path_literal','status':status,'action':'Concrete file path; may be used by a file-existence guard.'})
+        # Resolve I/O inside local reader functions when the call supplies literal paths.
+        definitions={n.name:n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef)}
+        for call in ast.walk(tree):
+            if not isinstance(call,ast.Call) or not isinstance(call.func,ast.Name) or call.func.id not in READERS:continue
+            fn=definitions.get(call.func.id)
+            if fn is None:continue
+            bindings=dict(values)
+            for param,arg in zip(fn.args.args,call.args):
+                value=literal_path(arg,values)
+                if value is not None:bindings[param.arg]=value
+            for keyword in call.keywords:
+                value=literal_path(keyword.value,values)
+                if value is not None:bindings[keyword.arg]=value
+            for read in ast.walk(fn):
+                if not isinstance(read,ast.Call):continue
+                reader=read.func.id if isinstance(read.func,ast.Name) else getattr(read.func,'attr','')
+                arg=read.func.value if reader in ('read_text','read_bytes') and isinstance(read.func,ast.Attribute) else read.args[0] if read.args else None
+                if reader not in ('open','read_text','read_bytes','read_csv','read_table'):continue
+                value=literal_path(arg,bindings)
+                if value is None or value.startswith(('http://','https://')):continue
+                target=(path.parent/value).resolve()
+                status='EXTERNAL PATH — SUPPLY FILE AND MAP PATH' if not target.is_relative_to(root) else 'AVAILABLE' if target.is_file() else 'MISSING OR GENERATED AT RUNTIME'
+                inputs.append({'source':relative,'line':call.lineno,'path':value,'reader':call.func.id,'status':status,'action':'Resolved from a literal call into the submitted reader function.'})
     # Some references are optional, conditional or generated. Only execution establishes a blocker.
     return {'modules': modules, 'inputs': inputs, 'models': models, 'dynamic_inputs': unresolved,
             'note': 'Potential prerequisites only: conditional imports, generated files, dynamic paths, package versions and network inputs require runtime verification. No student code was executed.'}

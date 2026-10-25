@@ -27,7 +27,39 @@ class DisplayValue:
         raise UnsupportedBrowserFeature('Read the widget .value explicitly')
 
 class DisplayUI:
-    def __init__(self): self.assumptions=[]
+    def __init__(self,model_apis=False): self.assumptions=[];self.model_apis=model_apis
+    def run_button(self,label='',**kwargs):
+        if not self.model_apis or not any(w in str(label).lower() for w in ('model','llm','language','classifier')):
+            raise UnsupportedBrowserFeature('Run button needs an explicitly enabled compatible mock model test')
+        self.assumptions.append({'widget':'run_button','value':True,'scope':'One simulated click for an explicitly enabled model-API mock. Actual model behavior is unverified.'})
+        return DisplayValue(True)
+    def checkbox(self,value=False,**kwargs):
+        if not isinstance(value,bool):raise ValueError('Checkbox default must be boolean')
+        self.assumptions.append({'widget':'checkbox','value':value,'scope':'Declared default only; toggling was not tested.'})
+        return DisplayValue(value)
+    def text(self,value='',**kwargs):
+        if not isinstance(value,str): raise ValueError('Text widget default must be a string')
+        self.assumptions.append({'widget':'text','value':value,'scope':'Declared default only; no user text was entered.'})
+        return DisplayValue(value)
+    def dropdown(self,options,value=None,**kwargs):
+        if value is None: raise UnsupportedBrowserFeature('Dropdown has no declared default; a test choice is required')
+        if value not in options: raise ValueError('Dropdown default is not in its options')
+        selected=options[value] if isinstance(options,dict) else value
+        self.assumptions.append({'widget':'choice','value':str(selected),'scope':'Declared default only; other choices were not tested.'})
+        return DisplayValue(selected)
+    radio=dropdown
+    def multiselect(self,options,value=None,**kwargs):
+        selected=[] if value is None else list(value)
+        if any(v not in options for v in selected):raise ValueError('Multiselect default is not in options')
+        self.assumptions.append({'widget':'multiselect','value':selected,'scope':'Only the declared initial selection was tested.'})
+        return DisplayValue([options[v] for v in selected] if isinstance(options,dict) else selected)
+    def altair_chart(self,data,**kwargs):
+        self.assumptions.append({'widget':'altair_chart','scope':'Chart was computed; interactive selections were not tested.'})
+        return DisplayTabs(data)
+    def table(self,data,**kwargs):
+        self.assumptions.append({'widget':'table','scope':'Display data was computed; table selections were not simulated.'})
+        return DisplayTabs(data)
+
     def slider(self,start=None,stop=None,step=None,value=None,**kwargs):
         selected=value if value is not None else start
         if not isinstance(selected,(int,float)):
@@ -44,16 +76,27 @@ class DisplayUI:
 
 class DisplayMarimo(types.ModuleType):
     """Only display primitives are adapted; computational APIs are never stubbed."""
-    def __init__(self):
+    def __init__(self,model_apis=False):
         super().__init__('marimo')
         self.App = CellApp
-        self.ui = DisplayUI()
+        self.ui = DisplayUI(model_apis)
     def md(self, text):
         print(str(text)[:4000])
         return text
     def hstack(self, items, **kwargs):
         return items
     vstack = hstack
+    def plain_text(self,value):
+        return str(value)
+    def callout(self,value,**kwargs):
+        return value
+    def plain(self,value):
+        return value
+    def Html(self,value):
+        return str(value)
+    def stop(self,condition,output=None):
+        if condition:
+            raise UnsupportedBrowserFeature('A marimo stop condition is active: this cell did not finish; no success was inferred')
     def notebook_dir(self):
         return Path(os.getcwd())
     def __getattr__(self, name):
@@ -77,7 +120,7 @@ class CellApp:
         raise UnsupportedBrowserFeature('Native marimo app.run is not available in the browser')
 
 
-def run_source(source, filename):
+def run_source(source, filename, model_apis=False):
     tree = ast.parse(source, filename)
     from grader_core import source_blocks
     _, metadata = source_blocks(source, filename)
@@ -90,6 +133,8 @@ def run_source(source, filename):
     top = []
     for node in tree.body:
         if isinstance(node, ast.If) and '__name__' in ast.unparse(node.test):
+            if node.orelse or len(node.body)!=1 or not isinstance(node.body[0],ast.Expr) or not isinstance(node.body[0].value,ast.Call) or not isinstance(node.body[0].value.func,ast.Attribute) or node.body[0].value.func.attr!='run':
+                raise UnsupportedBrowserFeature('Nonstandard main guard contains code that cannot be skipped; native execution is required')
             continue
         top.append(node)
         if isinstance(node, ast.FunctionDef) and any(isinstance(d, (ast.Call,ast.Attribute)) and 'cell' in ast.unparse(d) for d in node.decorator_list):
@@ -116,7 +161,7 @@ def run_source(source, filename):
                     raise ValueError(f'Duplicate cell export: {name}')
                 exports[name]=node.name
             cells.append(names)
-    module=DisplayMarimo()
+    module=DisplayMarimo(model_apis)
     previous=sys.modules.get('marimo')
     sys.modules['marimo']=module
     try:
@@ -153,20 +198,27 @@ def run_source(source, filename):
         else: sys.modules['marimo']=previous
 
 
-def run_browser_entry(folder, entry, mock=False, mock_words=18000):
+def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=False):
     from prerequisites import prepared_submission, recovery_requirements
     from mock_inputs import prepare_mock_inputs
     buffer=io.StringIO(); detail={}; mocks={'manifest':[]}; failure_kind=None; exception_type=None; action=None
     with prepared_submission(folder) as (work,_,_):
-        original=os.getcwd(); old_path=sys.path[:]
+        original=os.getcwd(); old_path=sys.path[:]; old_home=os.environ.get('HOME');old_backend=os.environ.get('MPLBACKEND')
+        saved_model_modules={}
         try:
-            if mock: mocks=prepare_mock_inputs(work,words=mock_words)
+            os.environ['MPLBACKEND']='Agg'
+            if mock:
+                os.environ['HOME']=str(work/'_mock_home')
+                mocks=prepare_mock_inputs(work,words=mock_words,model_apis=model_apis)
+            if any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']):
+                saved_model_modules={k:v for k,v in sys.modules.items() if k=='transformers' or k.startswith('transformers.')}
+                for name in saved_model_modules:sys.modules.pop(name,None)
             script=work/entry
             os.chdir(script.parent);sys.path.insert(0,str(work));sys.path.insert(0,str(script.parent))
             with contextlib.redirect_stdout(buffer),contextlib.redirect_stderr(buffer):
                 if script.suffix=='.ipynb':
                     raise UnsupportedBrowserFeature('Jupyter execution requires native kernel support')
-                detail=run_source(script.read_text(encoding='utf-8-sig'),str(script))
+                detail=run_source(script.read_text(encoding='utf-8-sig'),str(script),model_apis=any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']))
             status='BROWSER RUN SUCCEEDED'
         except (UnsupportedBrowserFeature,ModuleNotFoundError,ImportError,FileNotFoundError,OSError) as exc:
             status='BLOCKED / UNSUPPORTED IN BROWSER'
@@ -181,11 +233,19 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000):
             action='Increase synthetic corpus size or supply schema-compatible fixtures; the original data may contain rows or keys absent from mocks.' if failure_kind=='mock_input_or_code_mismatch' else 'Inspect the traceback: a mock run alone cannot establish behavior with original inputs.'
             buffer.write(traceback.format_exc())
         finally:
+            if any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']):
+                for name in list(sys.modules):
+                    if name=='transformers' or name.startswith('transformers.'):sys.modules.pop(name,None)
+                sys.modules.update(saved_model_modules)
             os.chdir(original);sys.path[:]=old_path
+            if old_backend is None:os.environ.pop('MPLBACKEND',None)
+            else:os.environ['MPLBACKEND']=old_backend
+            if old_home is None:os.environ.pop('HOME',None)
+            else:os.environ['HOME']=old_home
     if failure_kind=='mock_input_or_code_mismatch':
         status='INPUT / CODE MISMATCH — INCONCLUSIVE'
     if mock and mocks['manifest']:
         status='MOCK '+status+' — ORIGINAL INPUTS UNVERIFIED'
     return {'file':entry,'status':status, 'failure_kind':failure_kind,'exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
             'missing_resources':recovery_requirements(buffer.getvalue()) if status.startswith('BLOCKED') or 'BLOCKED' in status else [],
-            'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}
+            'mock_home_redirected':mock, 'model_api_mock_requested':model_apis, 'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}

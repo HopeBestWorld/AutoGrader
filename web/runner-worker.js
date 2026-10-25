@@ -18,7 +18,9 @@ onmessage = async ({data}) => {
     if (data.mode==='run') {
       const imports=py.runPython("'\\n'.join(p.read_text(errors='replace') for p in groups[job['student']].rglob('*.py'))");
       await py.loadPackage(['pandas','numpy']);
+      if (/\b(?:spearman|kendall)\b/i.test(imports)) await py.loadPackage('scipy');
       await py.runPythonAsync("await micropip.install('altair')");
+      if (/\b(?:from|import)\s+vaderSentiment\b/.test(imports)) await py.runPythonAsync("await micropip.install('vaderSentiment==3.3.2')");
       await py.loadPackagesFromImports(imports); // Only Pyodide-supported distributions; no guessed PyPI installs.
     }
     const text=await py.runPythonAsync(`
@@ -33,7 +35,9 @@ if job['mode']=='review':
     result['archive_sha256']=hashlib.sha256(base64.b64decode(job['archive'])).hexdigest()
     result['runtime_capabilities']={'edition':'browser execution subset','native_execution':False}
 else:
-    result=run_browser_entry(groups[job['student']],job['entry'],job.get('mock',False),job.get('mock_words',30000))
+    result=run_browser_entry(groups[job['student']],job['entry'],job.get('mock',False),job.get('mock_words',30000),job.get('model_apis',False))
+from execution_summary import summarize_attempt
+if job['mode']=='run': result['outcome']=summarize_attempt(result)
 json.dumps(result)
 `);
     postMessage({ok:true,result:JSON.parse(text)});

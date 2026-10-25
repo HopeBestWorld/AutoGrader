@@ -36,6 +36,7 @@ dependencies = [
     "truststore>=0.10.5",
     "ipykernel>=7.4.0",
     "en-core-web-sm",
+    "vadersentiment==3.3.2",
 ]
 
 [tool.uv.sources]

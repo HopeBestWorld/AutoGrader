@@ -86,3 +86,58 @@ def _(base,add):
         self.assertIn('MOCK BROWSER RUN SUCCEEDED',result['status'],result['log'])
         self.assertEqual(result['mocks']['sizing']['largest_explicit_passage_index'],336)
         self.assertLessEqual(result['mocks']['sizing']['effective_words'],200000)
+
+    def test_declared_text_choice_defaults_execute_and_are_recorded(self):
+        result=self.run_code('import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    t=mo.ui.text(value="book.txt")\n    d=mo.ui.dropdown(["a","b"],value="b")\n    assert t.value=="book.txt" and d.value=="b"\n    mo.stop(False)\n    return')
+        self.assertEqual(result['status'],'BROWSER RUN SUCCEEDED',result['log'])
+        self.assertEqual(len(result['widget_defaults_tested']),2)
+    def test_true_stop_remains_incomplete(self):
+        result=self.run_code('import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    mo.stop(True)\n    raise RuntimeError("must not pass this cell")\n    return')
+        self.assertEqual(result['status'],'BLOCKED / UNSUPPORTED IN BROWSER')
+    def test_no_default_choice_is_not_invented(self):
+        result=self.run_code('import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    d=mo.ui.dropdown(["a","b"])\n    return (d,)')
+        self.assertEqual(result['status'],'BLOCKED / UNSUPPORTED IN BROWSER')
+
+    def test_explicit_model_mock_executes_original_call_contract_and_records_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)
+            source='''import marimo
+app=marimo.App()
+@app.cell
+def _():
+    import marimo as mo
+    run=mo.ui.run_button(label="Run language model")
+    mo.stop(not run.value)
+    from transformers import pipeline
+    generate=pipeline("text-generation",model="synthetic-test-model")
+    result=generate([{"role":"user","content":"test passage"}],max_new_tokens=5,do_sample=False)
+    assert result[0]["generated_text"][-1]["role"]=="assistant"
+    assert result[0]["generated_text"][-1]["content"] in ("positive","negative","neutral")
+    return
+'''
+            (p/'main.py').write_text(source)
+            result=run_browser_entry(p,'main.py',mock=True,model_apis=True)
+            self.assertIn('MOCK BROWSER RUN SUCCEEDED',result['status'],result['log'])
+            self.assertTrue(any(m['origin']=='BUNDLED MOCK MODEL API' for m in result['mocks']['manifest']))
+            self.assertTrue(result['widget_defaults_tested'][0]['value'])
+            self.assertEqual((p/'main.py').read_text(),source)
+    def test_model_mock_does_not_hide_an_invalid_api_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)
+            (p/'main.py').write_text('from transformers import pipeline\npipeline("text-generation")("wrong request type")')
+            result=run_browser_entry(p,'main.py',mock=True,model_apis=True)
+            self.assertIn('EXECUTION ERROR',result['status'])
+            self.assertIn('TypeError',result['log'])
+
+    def test_mock_model_toggle_does_not_activate_an_unmocked_model_service(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)
+            (p/'main.py').write_text('import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    import marimo as mo\n    run=mo.ui.run_button(label="Run language model")\n    raise RuntimeError("unmocked model call must not run")\n    return')
+            r=run_browser_entry(p,'main.py',mock=True,model_apis=True)
+            self.assertEqual(r['status'],'BLOCKED / UNSUPPORTED IN BROWSER')
+            self.assertNotIn('RuntimeError:',r['log'])
+
+    def test_computation_in_main_guard_is_not_silently_skipped(self):
+        r=self.run_code('import marimo\napp=marimo.App()\nif __name__=="__main__":\n    assert False,"must not be silently skipped"\n    app.run()')
+        self.assertEqual(r['status'],'BLOCKED / UNSUPPORTED IN BROWSER')
+        self.assertIn('cannot be skipped',r['log'])

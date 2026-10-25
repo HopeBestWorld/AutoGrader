@@ -142,8 +142,32 @@ ZIP extraction rejects traversal and symlinks, limits nested depth to four, and 
 
 ### Browser compatibility fixes and bundled helper mocks
 
-The browser adapter supports `app.setup`, identity `app.function` decorators, and Path-valued `mo.notebook_dir()`. Return statements inside nested helper functions are not mistaken for cell exports. In mock mode, a missing `sentiment_toolkit` may receive the bundled simplified test double (text segmentation, lexicon scoring/ranking and chart display). It is explicitly manifested as a **BUNDLED MOCK HELPER**, never supplied in real-input mode, and never replaces an existing helper. Classifier/LLM functions are deliberately unsupported. Other unknown helper APIs still require their original implementation or a compatible fixture. A smoke-test pass does not validate the actual instructor library or original datasets.
+The browser adapter supports `app.setup`, identity `app.function` decorators, and Path-valued `mo.notebook_dir()`. Return statements inside nested helper functions are not mistaken for cell exports. In mock mode, a missing `sentiment_toolkit` may receive the bundled simplified test double (text segmentation, lexicon scoring/ranking and chart display). It is explicitly manifested as a **BUNDLED MOCK HELPER**, never supplied in real-input mode, and never replaces an existing helper. The sentiment helper’s classifier/LLM convenience functions remain unsupported; the separate, explicitly enabled model-API test double below covers a defined chat-generation contract. Other unknown helper APIs still require their original implementation or a compatible fixture. A smoke-test pass does not validate the actual instructor library or original datasets.
 
 ### Interpreting unsuccessful browser checks
 
 Each run keeps its traceback and now includes a failure category and suggested next action. Unknown browser APIs/dependencies are blocked, while an index/key failure with synthetic inputs is **mock input / code mismatch — inconclusive**, not proof of a failure with original data. Numeric sliders can be tested at their declared initial values; every tested default is recorded and reactive interaction is not tested. The mock corpus starts with a 30,000-word target in the browser controls and can grow based on explicit passage indices/segment sizes, bounded at 200,000 words and the existing byte budget. Those sizing assumptions are recorded. Original text is never overwritten and code assertions are never disabled. Imported legacy reports and timeouts lacking a file field are normalized so one incomplete result cannot crash the table/export.
+
+## Understanding run outcomes
+
+The main table now has **Runs?**, **Test inputs**, **Reason**, and **Next step** columns, a batch count, an outcome filter, and a plain-language CSV download. Detailed tracebacks remain in the student inspector. Original execution records are preserved in the JSON export alongside `run_summary` and `execution_counts`.
+
+- **Yes — with mocks** means the entrypoint finished on the documented synthetic inputs/helper doubles and tested UI defaults. It does not verify the original files, original helpers, native marimo behavior, accuracy, or completeness.
+- **Yes — with supplied inputs** means this tested input/runtime path finished.
+- **Unknown** means a missing resource, browser limitation, time limit or incompatible test inputs prevented a determination. It must not be counted as failed student code.
+- **Error — test stopped** means an error stopped the particular tested run. With mocks, matching original inputs may behave differently.
+- **Not tested** means no attempt occurred, for example because executable source was missing. Saved output snapshots cannot replace source code.
+
+Several recorded attempts are summarized conservatively: one successful attempt does not hide another attempt's failure or block.
+
+## Compatible mock fixtures and their boundaries
+
+In mock mode, the checker can resolve simple submitted path expressions and literal arguments passed into local reader functions. Unique exact basenames (case-insensitive) reuse supplied files without changing their contents. A sole HTML attachment may be staged at a requested HTML path as an explicitly unverified input alias. Provided files take precedence and originals remain unchanged.
+
+Synthetic prose can include literal text boundaries, chapter headings and anchor phrases used by submitted readers. These fixture hints are recorded. No expected calculation outputs are copied, assertions suppressed, output files fabricated to satisfy assertions, or student code repaired. Synthetic lexicons have deterministic test weights/labels over available text vocabulary, not real trained annotations. This can exercise analysis code; it cannot validate findings about the actual book. Fixtures, inferred sizing, input aliases and path changes are retained in reports.
+
+The browser adapter additionally supports declared defaults for text, numeric sliders, dropdown/radio/multiselect and checkbox controls, plus display-only tables, tabs and charts. It records the tested values. Other selections, reactive UI interactions and native graph equivalence are not tested. A true `mo.stop` condition still blocks completion; the checker does not bypass guards. Matplotlib uses the real headless Agg backend rather than requiring a browser DOM. `vaderSentiment==3.3.2` is an explicitly supported real dependency.
+
+The advanced browser controls include **Use the supported model-API test double**. When enabled with mock inputs and a submission imports `transformers`, a bundled test double supplies the supported `pipeline("text-generation")` chat request/response interface. A model run-button click is simulated once and recorded. Synthetic replies are hash-based positive/negative/neutral fixtures, not predictions or real AI inference. The fixture validates request types and rejects unsupported API options; invalid caller code can still fail. It never downloads a model or calls an AI service. A report using it is explicitly labeled **Yes — with mock model API**, with a substitution manifest. It does not establish that the actual model can load or that its real outputs work. Disable it to test without this substitute.
+
+No checker can execute a submission without its source, make genuinely broken code succeed honestly, or guarantee every future assignment/package is browser-compatible. Remaining unsupported cases stay visible instead of being marked successful.

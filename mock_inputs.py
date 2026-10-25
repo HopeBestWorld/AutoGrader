@@ -17,16 +17,52 @@ TEXT_PARAGRAPHS = (
     'The travelers paused near the old bridge to examine a map. Although their plans had changed, they considered several possible routes, comparing distance, weather, and the supplies that remained. Their conversation continued until the rain stopped.',
     'By afternoon the sun appeared again. The children played in the garden while their parents worked nearby. The family listened to a story about a difficult voyage, a surprising discovery, and a joyful return home.',
 )
-SUPPORTED = {'.txt', '.csv', '.tsv', '.json', '.jsonl', '.ndjson'}
+SUPPORTED = {'.html','.htm','.txt', '.csv', '.tsv', '.json', '.jsonl', '.ndjson'}
 
 
-def synthetic_text(words=18000):
+def synthetic_text(words=18000, hints=None):
+    hints=hints or {'starts':[],'ends':[],'phrases':[]}
     paragraphs, count = [], 0
     while count < words:
         paragraph = TEXT_PARAGRAPHS[len(paragraphs) % len(TEXT_PARAGRAPHS)]
-        paragraphs.append(paragraph)
+        if len(paragraphs)%25==0:
+            paragraphs.append(f"CHAPTER {len(paragraphs)//25+1}\n\n{paragraph}")
+        else: paragraphs.append(paragraph)
         count += len(paragraph.split())
-    return 'SYNTHETIC SMOKE TEST CORPUS — NOT STUDENT DATA\n\n' + '\n\n'.join(paragraphs) + '\n'
+    # Literal text markers are fixture requirements, not expected computed answers.
+    return ('SYNTHETIC SMOKE TEST CORPUS — NOT STUDENT DATA\n\n'+'\n\n'.join(hints['starts'])+'\n\n'+
+            '\n\n'.join(paragraphs)+'\n\n'+'\n\n'.join(hints['phrases'])+'\n\n'+'\n\n'.join(hints['ends'])+'\n')
+
+
+def infer_text_hints(work):
+    from prerequisites import sources
+    starts,ends,phrases=[],[],[]
+    for _,source in sources(work):
+        try:tree=ast.parse(source)
+        except SyntaxError:continue
+        bindings={}
+        for n in ast.walk(tree):
+            if isinstance(n,ast.Assign) and isinstance(n.value,ast.Constant) and isinstance(n.value.value,str):
+                for t in n.targets:
+                    if isinstance(t,ast.Name):bindings[t.id]=n.value.value
+        def add(value,where=None):
+            if not isinstance(value,str) or not 5<=len(value)<=300 or value.startswith(('http:','https:')):return
+            end=bool(re.search(r'\bend\b|license|end_marker|end_text',str(where or '')+' '+value,re.I))
+            destination=ends if end else starts
+            if value not in destination:destination.append(value)
+        for n in ast.walk(tree):
+            if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='contains' and n.args and isinstance(n.args[0],ast.Constant) and isinstance(n.args[0].value,str) and len(n.args[0].value)>10:
+                if any(k.arg=='regex' and isinstance(k.value,ast.Constant) and k.value.value is False for k in n.keywords):phrases.append(n.args[0].value)
+            if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr in ('index','find','split') and n.args:
+                arg=n.args[0]
+                value=arg.value if isinstance(arg,ast.Constant) else bindings.get(arg.id) if isinstance(arg,ast.Name) else None
+                if isinstance(value,str) and (len(value)>12 or re.search('start|end|marker',str(getattr(arg,'id','')),re.I)):add(value,getattr(arg,'id',''))
+            if isinstance(n,ast.Assign):
+                for t in n.targets:
+                    if isinstance(t,ast.Name) and re.search(r'start_marker|end_marker|start_text|end_text',t.id,re.I):add(bindings.get(t.id),t.id)
+                if isinstance(n.value,ast.Dict) and any(isinstance(t,ast.Name) and re.search('events|anchors|quotes|phrases',t.id,re.I) for t in n.targets):
+                    phrases.extend(v.value for v in n.value.values if isinstance(v,ast.Constant) and isinstance(v.value,str) and 5<len(v.value)<300)
+    return {'starts':list(dict.fromkeys(starts))[:32],'ends':list(dict.fromkeys(ends))[:32],'phrases':list(dict.fromkeys(phrases))[:32],'scope':'Only literal text boundaries/anchors were used. No expected calculation results were copied and no assertions were changed.'}
 
 
 def infer_columns(work):
@@ -61,28 +97,51 @@ def synthetic_rows(columns, count=24):
             return TEXT_PARAGRAPHS[i % len(TEXT_PARAGRAPHS)]
         if any(term in column.lower() for term in ('title', 'author', 'name', 'category')):
             return f'Synthetic {column} {i + 1}'
+        if column.lower() in ('word','token'):
+            return ['happy','hope','sad','fear','bad','good'][i%6]
+        if column.lower()=='sentiment':
+            return 'positive' if i%2 else 'negative'
         if column.lower() in ('label', 'target', 'class'):
             return i % 2
         return round((i + 1) / count, 4) if any(term in column.lower() for term in ('score', 'value', 'rate')) else i + 1
     return [{column: value(column, i) for column in columns} for i in range(count)]
 
 
-def write_synthetic(path, reader, columns, words):
+def lexicon_vocabulary(work,hints):
+    """Synthetic coverage vocabulary only; weights are deterministic test values."""
+    text=' '.join(TEXT_PARAGRAPHS)+' '+' '.join(hints['starts']+hints['ends']+hints['phrases'])
+    for p in Path(work).rglob('*.txt'):
+        if p.stat().st_size<=5*1024**2:
+            text+=' '+p.read_text(encoding='utf-8',errors='replace')
+    return list(dict.fromkeys(re.findall(r"[a-z][a-z'-]{1,40}",text.lower())))[:30000]
+
+
+def write_synthetic(path, reader, columns, words, hints=None, vocabulary=None):
     """Return format details or None when the format cannot be guessed responsibly."""
     suffix = path.suffix.lower()
     compressed = suffix == '.gz'
     inner = Path(path.stem).suffix.lower() if compressed else suffix
+    if inner=='' and reader in ('read_text','load_segments'):inner='.txt'
     if inner not in SUPPORTED:
         return None
     rows = synthetic_rows(columns)
-    if reader == 'load_lexicon' and inner in ('.csv', '.txt'):
+    if (reader=='load_lexicon' or path.name.lower() in ('bingliu.csv','syuzhet.csv')) and inner in ('.csv','.txt'):
         content = '1,happy\n1,hope\n1,joy\n1,good\n-1,sad\n-1,fear\n-1,bad\n-1,dangerous\n'
-        details = {'format': 'synthetic headerless sentiment lexicon', 'schema': ['weight', 'word']}
-    elif reader == 'load_emolex' and inner in ('.txt', '.tsv'):
-        content = ''.join(f'{word}\t{emotion}\t1\n' for word, emotion in [('happy','joy'),('hope','positive'),('sad','sadness'),('fear','fear'),('bad','negative')])
-        details = {'format': 'synthetic emotion lexicon', 'schema': ['word','emotion','flag']}
+        for index,word in enumerate(vocabulary or []):
+            if word not in {'happy','hope','joy','good','sad','fear','bad','dangerous'}:content+=f'{1 if index%2 else -1},{word}\n'
+        details = {'format': 'synthetic headerless sentiment lexicon', 'schema': ['weight', 'word'],'weight_source':'Deterministic synthetic test weights; not a trained sentiment lexicon.'}
+    elif (reader == 'load_emolex' or 'emolex' in path.name.lower()) and inner in ('.txt', '.tsv'):
+        content = ''.join(f'{word}\t{emotion}\t1\n' for word, emotion in [('happy','joy'),('hope','positive'),('sad','sadness'),('fear','fear'),('bad','negative'),('storm','anger'),('friends','trust'),('dangerous','disgust'),('journey','anticipation'),('surprising','surprise')])
+        labels=['joy','sadness','fear','anger','trust','disgust','anticipation','surprise']
+        for index,word in enumerate(vocabulary or []):
+            content+=f'{word}\t{"positive" if index%2 else "negative"}\t1\n{word}\t{labels[index%len(labels)]}\t1\n'
+        details = {'format': 'synthetic emotion lexicon', 'schema': ['word','emotion','flag'],'label_source':'Deterministic synthetic test labels; not original NRC annotations.'}
+    elif inner in ('.html','.htm'):
+        import html
+        content='<html><body>'+''.join('<p>'+html.escape(p)+'</p>' for p in synthetic_text(words,hints).split('\n\n'))+'</body></html>'
+        details={'format':'synthetic HTML prose','words':words}
     elif inner == '.txt':
-        content = synthetic_text(words)
+        content = synthetic_text(words,hints)
         details = {'format': 'synthetic prose', 'words': len(content.split())}
     elif inner in ('.csv', '.tsv'):
         buffer = io.StringIO()
@@ -133,7 +192,7 @@ def infer_corpus_size(work, minimum):
     return {'minimum_words':minimum,'effective_words':min(needed,200000),'largest_explicit_passage_index':max(indices) if indices else None,'assumed_words_per_segment':max(sizes),'capped':needed>200000,'scope':'Synthetic capacity hint only; this does not reproduce original text or guarantee its schema/structure.'}
 
 
-def prepare_mock_inputs(work, fixtures=None, words=18000):
+def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
     """Fill absent inputs only. Never generate Python implementations or edit originals."""
     from prerequisites import audit_prerequisites
     from grader_core import stage_paths
@@ -141,6 +200,7 @@ def prepare_mock_inputs(work, fixtures=None, words=18000):
         raise ValueError('Mock corpus length must be between 100 and 200,000 words')
     work = Path(work).resolve()
     manifest, unresolved, skipped = [], [], []
+    provided_files=[]
     if fixtures:
         for source in sorted(Path(fixtures).rglob('*')):
             if not source.is_file():
@@ -166,9 +226,16 @@ def prepare_mock_inputs(work, fixtures=None, words=18000):
             if fixture.is_file() and not target.exists():
                 shutil.copy2(fixture,target)
                 manifest.append(manifest_entry(target,work,'BUNDLED MOCK HELPER',kind='sentiment toolkit test double',limitations='Simplified lexicon methods only; not the original course library or model APIs.'))
+    if model_apis and any(m['module']=='transformers' for m in audit['modules']):
+        target=work/'transformers.py'
+        if not target.exists():
+            shutil.copy2(Path(__file__).parent/'mock_helpers/transformers.py',target)
+            manifest.append(manifest_entry(target,work,'BUNDLED MOCK MODEL API',kind='text-generation chat API test double',limitations='Hash-based synthetic replies. No actual model, prediction quality, inference or network was tested.'))
     audit=audit_prerequisites(work)
+    hints=infer_text_hints(work)
     sizing=infer_corpus_size(work,words)
     words=sizing['effective_words']
+    vocabulary=lexicon_vocabulary(work,hints)
     columns = infer_columns(work)
     mappings = {}
     seen = set()
@@ -193,7 +260,19 @@ def prepare_mock_inputs(work, fixtures=None, words=18000):
         if sum(m['origin'] == 'AUTOMATIC SYNTHETIC DATA' for m in manifest) >= 64:
             unresolved.append({**item, 'reason': 'Automatic mock limit of 64 files reached; supply a fixture bundle.'})
             continue
-        details = write_synthetic(target, item.get('reader', ''), columns, words)
+        candidates=[p for p in work.rglob('*') if p.is_file() and p.name.casefold()==target.name.casefold() and p!=target and not any(m['file']==str(p.relative_to(work)) for m in manifest)]
+        if len(candidates)==1:
+            target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(candidates[0],target)
+            provided_files.append(manifest_entry(target,work,'STAGED PROVIDED FILE',original=str(candidates[0].relative_to(work)),reason='Unique exact basename match (case-insensitive); contents unchanged.'))
+            if external:mappings[value]=str(target.relative_to(work))
+            continue
+        if target.suffix.lower() in ('.html','.htm'):
+            html_candidates=[p for p in work.rglob('*') if p.is_file() and p.suffix.lower() in ('.html','.htm') and not any(m['file']==str(p.relative_to(work)) for m in manifest)]
+            if len(html_candidates)==1:
+                target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(html_candidates[0],target)
+                manifest.append(manifest_entry(target,work,'MOCK INPUT ALIAS',original=str(html_candidates[0].relative_to(work)),reason='Only HTML attachment staged at requested HTML path; dataset identity is an explicit unverified test assumption. Contents unchanged.'))
+                continue
+        details = write_synthetic(target, item.get('reader', ''), columns, words,hints,vocabulary)
         if details is None:
             unresolved.append({**item, 'reason': 'Unsupported automatic mock format; provide a mock fixture with the required schema.'})
             continue
@@ -210,7 +289,7 @@ def prepare_mock_inputs(work, fixtures=None, words=18000):
         if item['status'].startswith('MISSING'):
             unresolved.append({**item, 'reason': 'Unknown Python helpers are not invented. Supply a compatible test double in the mock-fixtures ZIP or the original module.'})
     unresolved.extend({**i, 'reason': 'Dynamic input paths cannot be generated automatically; supply a fixture or exact mapping.'} for i in audit['dynamic_inputs'])
-    return {'manifest': manifest, 'sizing':sizing, 'unresolved': unresolved, 'skipped': skipped, 'path_changes': changes,
+    return {'manifest': manifest, 'provided_files':provided_files,'sizing':sizing, 'text_hints':hints, 'unresolved': unresolved, 'skipped': skipped, 'path_changes': changes,
             'limitations': ['Synthetic data and helper test doubles validate only this smoke-test path, not original inputs, real helper behavior, analysis validity, or assignment completion.',
                            'Inferred table schemas/types and corpus text may be incompatible with a submission. A mock failure alone does not establish a failure with real inputs.']}
 

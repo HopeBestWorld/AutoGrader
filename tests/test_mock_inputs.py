@@ -126,4 +126,26 @@ class MockInputTests(unittest.TestCase):
         self.assertNotIn('artifact',report['students'][0]['execution'][0])
 
 
+    def test_missing_text_fixture_preserves_declared_boundary_markers(self):
+        source='text=open("novel.txt").read()\nstart_marker="Once the remarkable story begins"\nend_marker="THE END OF THIS STORY"\nstart=text.index(start_marker)\nend=text.index(end_marker)\nassert end>start\nassert 2+2==4'
+        self.script(source)
+        r=run_entrypoint(self.student,'main.py',10,mock=True)
+        self.assertEqual(r['returncode'],0,r['log'])
+        self.assertIn('Once the remarkable story begins',r['mocks']['text_hints']['starts'])
+        self.assertEqual((self.student/'main.py').read_text(),source)
+    def test_unique_real_file_is_reused_without_faking_its_contents(self):
+        self.script('assert open("data/book.txt").read()=="genuine supplied text"')
+        (self.student/'book.txt').write_text('genuine supplied text')
+        r=run_entrypoint(self.student,'main.py',10,mock=True)
+        self.assertEqual(r['returncode'],0,r['log'])
+        self.assertFalse(r['mock_used']);self.assertTrue(r['mocks']['provided_files'])
+        self.assertFalse((self.student/'data/book.txt').exists())
+
+    def test_expected_output_assertion_is_not_satisfied_by_a_fabricated_input(self):
+        self.script('from pathlib import Path\nassert Path("never_produced.txt").is_file(), "output was not produced"')
+        r=run_entrypoint(self.student,'main.py',10,mock=True)
+        self.assertNotEqual(r['returncode'],0)
+        self.assertIn('output was not produced',r['log'])
+        self.assertFalse(r['mock_used'])
+
 if __name__=='__main__': unittest.main()

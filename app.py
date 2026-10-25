@@ -7,6 +7,7 @@ import tempfile
 import zipfile
 
 import streamlit as st
+from execution_summary import summarize_student, summarize_batch, summarize_attempt
 from prerequisites import preflight_submission
 from grader_core import (normalize_execution_results, native_execution_available, completion_status, group_submissions, load_profile, profile_digest,
                          review_folder, run_entrypoint, safe_extract, serializable_report,
@@ -20,7 +21,7 @@ def main():
     st.title('Assignment Submission Checker')
     native_execution = native_execution_available()
     if not native_execution:
-        st.info('GitHub Pages edition: this Streamlit panel provides evidence review and completion decisions. Your ZIP and checklist are copied to the execution panel above. Click its “1. Extract parts and review ZIP”, then “2. Run detected entrypoints” buttons for actual browser checks. Native Python and native notebook execution remain unavailable, not a failure of student code.')
+        st.info('GitHub Pages edition: Upload the ZIP and instructions, then click Run browser checks (with mocks). The Runs? column reports whether the tested path finished. Unknown means the browser or inputs prevented a determination; it is not a student-code failure.')
         st.caption('Uploads stay in this browser session; this app does not send them to an autograding server. Export your report before leaving. Expanded archives are limited to 128 MiB.')
     st.write('Check whether code runs and review whether every assignment part is answered. No accuracy scores are assigned.')
     st.caption('Execution and completion are separate. Evidence matches help you find answers; they do not establish completion or correctness.')
@@ -82,6 +83,8 @@ def main():
         return
 
     browser_run_requested = st.button('Run browser checks (with mocks)', type='primary') if not native_execution else False
+    if not native_execution:
+        st.caption('Mock checks may use synthetic files and supported helper/model-API test doubles. No real AI model is used; every substitution is recorded.')
     if browser_run_requested:
         st.info('Browser execution started. Results will return to this table automatically. Open browser execution diagnostics below for progress.')
 
@@ -132,6 +135,8 @@ def main():
     elif not native_execution:
         st.warning('This table is static review only: code has NOT been run here. Missing inputs are not diagnosed by the NOT RUN label. Actual execution results and mock logs are in the browser execution panel above.')
         st.markdown('<a href="#browser-runner" target="_self">Go to browser execution and mock smoke tests ↑</a>', unsafe_allow_html=True)
+    counts_placeholder = st.empty()
+    run_filter = st.selectbox('Show run outcomes', ['All students','Ran successfully','Run hit an error','Cannot determine','Not tested'])
     table = st.empty()
     summary = st.empty()
     eligible = [r['student'] for r in rows if not r['unmatched']]
@@ -256,20 +261,38 @@ def main():
                 st.warning('MOCK SMOKE TEST ONLY — original-input behavior and assignment completion are unverified.')
                 st.write('Substitutions used:')
                 st.dataframe(result['mocks']['manifest'], hide_index=True)
-            st.write({k: v for k, v in result.items() if k not in ('log', 'artifact')})
+            outcome = summarize_attempt(result)
+            st.write('Run result:', outcome['answer'])
+            st.write('Reason:', outcome['reason'])
+            st.write('Next step:', outcome['next_step'])
+            with st.expander('Technical result details'):
+                st.write({k: v for k, v in result.items() if k not in ('log', 'artifact')})
             if result.get('missing_resources'):
                 st.write('Resources to obtain before retrying:')
                 st.dataframe(result['missing_resources'], hide_index=True)
             st.code(result.get('log', ''), language='text')
             if result.get('artifact'):
                 st.download_button('Download executed output', result['artifact'], f'{student}-{result["artifact_name"]}', key=f'artifact-{review_id}-{student}-{index}')
-    table.dataframe([{'Student': r['student'], 'Candidate evidence': f'{sum(bool(q["evidence"]) for q in r["requirements"])}/{len(r["requirements"])} parts',
-                      'Completion': completion_status(r), 'Execution': '; '.join(f'{e.get("file") or "(no entrypoint)"}: {e.get("status", "RESULT INCOMPLETE")}' for e in r['execution']) or ('NOT RUN' if native_execution else 'NOT RUN — USE BROWSER EXECUTION PANEL')} for r in rows], hide_index=True)
+    display_rows=[]
+    categories={'Ran successfully':'ran','Run hit an error':'test_error','Cannot determine':'unknown','Not tested':'not_run'}
+    for current in rows:
+        outcome=summarize_student(current)
+        if run_filter!='All students' and outcome['category']!=categories[run_filter]: continue
+        display_rows.append({'Student':current['student'],'Runs?':outcome['answer'],'Test inputs':outcome['inputs'],'Reason':outcome['reason'],'Next step':outcome['next_step'],
+                             'Candidate evidence':f'{sum(bool(q["evidence"]) for q in current["requirements"])}/{len(current["requirements"])} parts','Completion':completion_status(current)})
+    table.dataframe(display_rows,hide_index=True)
+    counts=summarize_batch(rows)
+    counts_placeholder.info(f"{counts['ran']} ran successfully · {counts['test_error']} hit a test error · {counts['unknown']} cannot be determined · {counts['not_run']} not tested. Success applies only to the tested inputs/runtime.")
     summary.caption('Candidate evidence is not a completion score. A student is complete only after all applicable parts are reviewed. Run results remain independent of those decisions.')
     report = serializable_report(profile, rows)
-    report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser review'}
+    report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser execution subset' if browser_results_applied else 'browser review', 'browser_execution':browser_results_applied}
     report['archive_sha256'] = hashlib.sha256(archive.getvalue()).hexdigest()
     st.download_button('Download report with review decisions and execution logs', json.dumps(report, indent=2), 'submission-report.json', 'application/json')
+    import csv
+    csv_buffer=io.StringIO()
+    if display_rows:
+        csv_writer=csv.DictWriter(csv_buffer,fieldnames=list(display_rows[0]));csv_writer.writeheader();csv_writer.writerows(display_rows)
+    st.download_button('Download plain-language results CSV',csv_buffer.getvalue(),'run-results.csv','text/csv')
     st.caption('Download before leaving the session; results are held in memory. The original Canvas ZIP remains your source for all files and attachments.')
 
 
