@@ -27,6 +27,11 @@ LEGEND = [
     ('unassessed', 'Not assessed — review needed', 'This assignment part has no assessment record in the report.'),
 ]
 LABELS = {key: label for key, label, _ in LEGEND}
+CSV_PART_SYMBOLS = {
+    'complete': '✅', 'incomplete': '❌', 'not_applicable': '➖',
+    'missing': '🔎', 'partial': '🔎', 'candidate': '🔎', 'unassessed': '🔎',
+}
+CSV_PART_KEY = 'CSV part key: ✅ complete (reviewed) · ❌ incomplete (reviewed) · 🔎 needs review · ➖ not applicable.'
 
 
 def part_summary(part):
@@ -128,7 +133,7 @@ def overview_rows(report):
         lookup = {p['id']: p for p in summary['parts']}
         for part in requirements:
             value = lookup.get(part['id'])
-            row[f'{part["id"]}: {part["title"]}'] = value['status'] if value else 'Check: requirement not assessed'
+            row[f'{part["id"]}: {part["title"]}'] = CSV_PART_SYMBOLS[value['category']] if value else '🔎'
         rows.append(row)
     return rows
 
@@ -147,7 +152,7 @@ def checklist_rows(report):
                 'Supplied files referenced': '; '.join(run['supplied_files']) or 'None matched',
                 'Mocks substituted': '; '.join(run['mock_files']) or 'None',
                 'Execution runtime':run['runtime'],'Setup scope':run['setup_scope'],'Part ID': summary['id'], 'Assignment part': summary['title'],
-                'Status': summary['status'], 'Reviewer decision': summary['review_decision'],
+                'Status': CSV_PART_SYMBOLS[summary['category']], 'Reviewer decision': summary['review_decision'],
                 'Automatic evidence': summary['automatic_evidence'], 'What to check': summary['next_step'],
                 'Missing answer types': '; '.join(summary['missing_evidence_types']),
                 'Assignment requirement': part.get('description', ''),
@@ -175,7 +180,7 @@ def compact_rows(report):
              'Run reason':run['reason'],'Run next step':run['next_step']}
         lookup={p['id']:p for p in parts['parts']}
         for index,requirement in enumerate(report.get('assignment',{}).get('requirements',[]),1):
-            row[f'{index}. {requirement["title"]}']=lookup[requirement['id']]['status']
+            row[f'{index}. {requirement["title"]}']=CSV_PART_SYMBOLS[lookup[requirement['id']]['category']]
         result.append(row)
     return result
 
@@ -287,7 +292,8 @@ def html_report(report):
               f'<h1>{h(title)}</h1>',
               '<p class="muted small">Run checks and part-by-part review for your grading team. Evidence matches await a grader decision; mock and adapted tests are labeled.</p>',
               f'<p class="muted small">Exported <time id="export-time" datetime="{h(report["generated_at"])}">{h(report["generated_at"])}</time> · {len(rows)} students · {len(requirements)} assignment parts</p>',
-              '<div class="actions"><button id="csv-download" type="button" class="primary">Download class CSV</button><button id="print" type="button">Print overview / PDF</button><a class="button" href="#overview">Go to class overview ↓</a></div></header>',
+              '<div class="actions"><button id="csv-download" type="button" class="primary">Download class CSV</button><button id="print" type="button">Print overview / PDF</button><a class="button" href="#overview">Go to class overview ↓</a></div>',
+              f'<p class="muted small">{h(CSV_PART_KEY)}</p></header>',
               '<div class="cards" aria-label="Entire class totals">']
     for count,label,style in [(len(rows),'Students',''),(counts['ran'],'Run tests finished','success'),
                               (counts['test_error']+counts['unknown']+counts['not_run'],'Runs needing attention','warning'),
@@ -408,6 +414,7 @@ Exported: {report['generated_at']}
 5. execution-next-steps.csv, when present, lists unresolved runtime issues, source/cell lines and suggested follow-up checks. Native follow-up reports retain earlier attempts in execution_history.
 
 {GUIDANCE}
+{CSV_PART_KEY}
 
 This is a read-only snapshot. Record decisions in the original app session and export again. Reports cannot currently restore a review session.
 The ZIP contains student evidence. Share it with the grading team through your usual course channel.

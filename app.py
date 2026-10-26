@@ -8,7 +8,7 @@ import zipfile
 
 import streamlit as st
 from execution_summary import summarize_student, summarize_batch, summarize_attempt, retryable_browser_result
-from report_exports import handoff_files, handoff_zip, summarize_parts
+from report_exports import CSV_PART_KEY, handoff_files, handoff_zip, summarize_parts
 from execution_diagnostics import recovery_rows
 from native_followup import followup_plan, make_colab_notebook
 from browser_resources import resource_hashes
@@ -396,6 +396,7 @@ def main():
     files = handoff_files(report)
     st.download_button('Download shareable TA report (HTML)',files['TA-report.html'],'TA-report.html','text/html',type='primary')
     st.download_button('Download combined results CSV',files['class-results.csv'],'TA-class-results.csv','text/csv')
+    st.caption(CSV_PART_KEY)
     with st.expander('More export formats and full execution records'):
         st.download_button('Download TA handoff ZIP', handoff_zip(files), 'TA-handoff.zip', 'application/zip')
         st.download_button('Download plain-language results CSV', files['student-overview.csv'], 'student-overview.csv', 'text/csv')

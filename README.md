@@ -244,6 +244,8 @@ The HTML is a report-only snapshot. It includes evidence excerpts and run record
 
 For a spreadsheet like the sample exports, choose **Download combined results CSV** in the app. It puts each student's run result, test inputs, reviewed completion counts, parts to check first, and all assignment-part statuses in one row.
 
+CSV part cells use **✅ complete (reviewed)**, **❌ incomplete (reviewed)**, **🔎 needs review**, and **➖ not applicable**. The same symbols appear in the overview and detailed checklist CSVs, including the CSV downloaded from the HTML report. Unreviewed evidence matches and gaps use 🔎 until a grader records a decision.
+
 ### Other export formats
 
 Expand **More export formats and full execution records** for individual detailed spreadsheets, JSON records, or **Download TA handoff ZIP**. The ZIP includes:
