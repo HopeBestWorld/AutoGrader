@@ -157,6 +157,54 @@ assert len(reference)==500
 ''')
         self.assertIn('RUN SUCCEEDED',result['status'],result['log'])
 
+    def test_cleaning_preserves_chapter_structure_and_respects_explicit_filter(self):
+        text='BOOK I\n\nThe first journey\n\nA traveler crossed the quiet river.\n\nBOOK II\n\nThe return\n\nThe traveler finally returned back home.'
+        result=self.run_code('''import re
+import readability_tools as rt
+text=open('book.txt').read()
+paragraphs=rt.clean_paragraphs(text)
+chapter=None
+chapters={}
+for paragraph in paragraphs:
+    if re.fullmatch(r'BOOK [IVX]+',paragraph):
+        chapter=paragraph
+        chapters[chapter]=[]
+    else:
+        assert chapter is not None, 'Chapter boundary was lost'
+        chapters[chapter].append(paragraph)
+assert list(chapters)==['BOOK I','BOOK II']
+assert chapters['BOOK I']==['The first journey','A traveler crossed the quiet river.']
+assert rt.clean_paragraphs(text,min_words=5)==['A traveler crossed the quiet river.','The traveler finally returned back home.']
+assert rt.clean_paragraphs('GO\\n\\nBody text.',start_at='GO',end_at='Body')==['GO']
+assert open('book.txt').read()==text
+''',files={'book.txt':text})
+        self.assertIn('RUN SUCCEEDED',result['status'],result['log'])
+        fixture=next(m for m in result['mocks']['manifest'] if m['file']=='readability_tools.py')
+        self.assertIn('short headings',fixture['limitations'])
+
+    def test_cleaning_unwraps_prose_emphasis_without_inventing_missing_markers(self):
+        text='BOOK I\n\n_The First Part._\n\nSome _emphasized words_ appear here.\n\nKeep file_name.txt and _private_name as written.'
+        result=self.run_code('''import readability_tools as rt
+text=open('book.txt').read()
+paragraphs=rt.clean_paragraphs(text)
+assert paragraphs.index('The First Part.')==1
+assert paragraphs[2]=='Some emphasized words appear here.'
+assert paragraphs[3]=='Keep file_name.txt and _private_name as written.'
+assert rt.clean_paragraphs(text,start_at='The First Part.')[0]=='The First Part.'
+assert rt.clean_paragraphs(text,start_at='_The First Part._')[0]=='The First Part.'
+assert rt.clean_paragraphs(text,end_at='_The First Part._')==['BOOK I']
+try:
+    paragraphs.index('ABSENT HEADING')
+except ValueError:
+    pass
+else:
+    raise AssertionError('Missing headings must still raise an error')
+assert open('book.txt').read()==text
+''',files={'book.txt':text})
+        self.assertIn('RUN SUCCEEDED',result['status'],result['log'])
+        fixture=next(m for m in result['mocks']['manifest'] if m['file']=='readability_tools.py')
+        self.assertIn('underscore emphasis',fixture['limitations'])
+
     def test_helper_url_can_use_one_supplied_book_with_recorded_identity_assumption(self):
         book='This is supplied prose about an actual fictional journey. '*300
         result=self.run_code('''import readability_tools as rt

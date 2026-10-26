@@ -246,7 +246,10 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False, brow
             source=(templates/(name+'.py')).read_text()
             if name=='readability_tools':source=source.replace('MODEL_APIS_ENABLED = False','MODEL_APIS_ENABLED = '+str(bool(model_apis)))
             target.write_text(source)
-            manifest.append(manifest_entry(target,work,'BUNDLED MOCK HELPER',kind='readability/NLP API test double',limitations='Heuristic syllables, synthetic dependency trees/tags and fixture frequencies; not the actual course library, trained NLP model or validated readability values.'))
+            limitations='Heuristic syllables, synthetic dependency trees/tags and fixture frequencies; not the actual course library, trained NLP model or validated readability values.'
+            if name=='readability_tools':
+                limitations+=' Paragraph cleaning preserves nonempty short headings by default, unwraps Gutenberg-style underscore emphasis and respects explicit min_words filters. Original document bytes are unchanged.'
+            manifest.append(manifest_entry(target,work,'BUNDLED MOCK HELPER',kind='readability/NLP API test double',limitations=limitations))
         if readability_fixture:
             target=work/'_mock_readability_clear.csv'
             if not target.exists():

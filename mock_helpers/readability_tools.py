@@ -128,13 +128,25 @@ def text_to_paragraphs(text):
     return [' '.join(p.split()) for p in re.split(r'\n\s*\n', text.replace('\r\n', '\n')) if p.strip()]
 split_paragraphs = text_to_paragraphs
 
-def clean_paragraphs(text, min_words=5, start_at=None, end_at=None, max_words=None):
+def _plain_emphasis(text):
+    return re.sub(r'(?<!\w)_([^_\n]+)_(?!\w)',r'\1',text)
+
+def clean_paragraphs(text, min_words=1, start_at=None, end_at=None, max_words=None):
+    """Normalize prose formatting without dropping short headings by default.
+
+    This fixture's defaults preserve document structure; a chapter heading can
+    carry meaning even when it contains only one or two words. Gutenberg-style
+    underscore emphasis is unwrapped; identifiers containing underscores remain.
+    """
     text='\n\n'.join(' '.join(p.split()) for p in text_to_paragraphs(text))
+    text=_plain_emphasis(text)
     if start_at:
+        start_at=_plain_emphasis(start_at)
         match=re.search(re.escape(start_at),text) or re.search(re.escape(start_at),text,re.I)
         if match is None:raise ValueError('Start marker not found in supplied text: '+start_at)
         text = text[match.start():]
     if end_at:
+        end_at=_plain_emphasis(end_at)
         match=re.search(re.escape(end_at),text) or re.search(re.escape(end_at),text,re.I)
         if match is None:raise ValueError('End marker not found in supplied text: '+end_at)
         text = text[:match.start()]
