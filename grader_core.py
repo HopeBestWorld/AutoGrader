@@ -474,7 +474,9 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
             event['origin'] = 'shared instructor files'
         staged.extend(common)
         changes = stage_paths(work, mapping or {})
-        from prerequisites import audit_prerequisites, recovery_requirements
+        from prerequisites import audit_prerequisites, recovery_requirements, stage_provided_inputs
+        supplied = stage_provided_inputs(work)
+        changes.extend(supplied['path_changes'])
         prerequisites = audit_prerequisites(work)
         mock_report = {'manifest': [], 'unresolved': [], 'skipped': [], 'path_changes': []}
         if mock:
@@ -488,7 +490,7 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
         else:
             _, meta = source_blocks(read_source(script), relative)
             if meta['syntax'] != 'OK':
-                return {'file': relative, 'status': 'SYNTAX ERROR', 'log': meta['syntax'], 'returncode': None, 'seconds': 0, 'staged_files': staged, 'path_changes': changes, 'mock_requested': mock, 'mock_used': mock_used, 'mocks': mock_report}
+                return {'file': relative, 'status': 'SYNTAX ERROR', 'log': meta['syntax'], 'returncode': None, 'seconds': 0, 'staged_files': staged, 'path_changes': changes, 'supplied_inputs': supplied, 'mock_requested': mock, 'mock_used': mock_used, 'mocks': mock_report}
             mode = 'Native marimo HTML export' if meta['marimo'] else 'Python script'
             command = [sys.executable, '-m', 'marimo', 'export', 'html', '--no-sandbox', str(script), '-o', str(output)] if meta['marimo'] else [sys.executable, str(script)]
         # No account/API credentials are inherited by student programs. This is
@@ -535,6 +537,7 @@ def run_entrypoint(folder, relative, timeout=120, shared=None, mapping=None, res
                   'test_scope': 'MOCK SMOKE TEST' if mock_used else 'PROVIDED INPUTS', 'mock_requested': mock, 'mock_used': mock_used, 'mocks': mock_report,
                   'returncode': proc.returncode, 'seconds': round(time.monotonic() - start, 2),
                   'log': log, 'log_truncated': size > MAX_TEXT, 'staged_files': staged, 'path_changes': changes,
+                  'supplied_inputs': supplied,
                   'prerequisites': prerequisites, 'missing_resources': recovery_requirements(log) if proc.returncode != 0 else [],
                   'warnings': ['Exit zero does not prove every cell ran: inspect disabled cells, stop calls, caught exceptions and outputs.']}
         if output.exists() and output.stat().st_size > 30 * 1024**2:

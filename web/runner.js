@@ -1,6 +1,7 @@
 const panel=document.getElementById('browser-runner');
 panel.innerHTML=`<h2>Check submissions — free browser execution</h2>
 <p>Upload a Canvas ZIP and assignment instructions. No AI or account is required. Supported Python code runs in a fresh browser worker. Native packages, Jupyter kernels, interactive notebook features and unknown helper APIs may be unsupported.</p>
+<p>Each student’s bundled documents are used first. Mocks fill supported missing inputs. Supplied file references and substitutions are listed separately in the TA report.</p>
 <label>Submissions ZIP <input id="run-zip" type="file" accept=".zip"></label>
 <label>Assignment instructions <input id="run-instructions" type="file" accept=".pdf,.txt,.md,.json"></label>
 <label>Fallback checklist <select id="run-preset"><option value="7">Assignment 7</option><option value="8">Assignment 8</option></select></label>

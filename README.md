@@ -10,12 +10,14 @@ The GitHub Pages app runs Streamlit and supported Python submissions in your bro
 
 1. [Open the app](https://hopebestworld.github.io/AutoGrader/) in a current desktop browser. Allow time for the initial Python runtime download.
 2. Select the Assignment 7 or 8 checklist, or upload your assignment instructions as PDF, text, Markdown, or checklist JSON. Review the extracted requirements under **Review or edit the requirement checklist** before using them.
-3. Upload the **Canvas submissions ZIP**, including the students' executable source files. Saved outputs alone cannot be executed.
+3. Upload the **Canvas submissions ZIP**, including the students' executable source files and the documents/data they used. Each student's bundled files stay with that student and take precedence over generated inputs. Saved outputs alone cannot be executed.
 4. Click **Run browser checks (with mocks)**. The app runs detected entrypoints in fresh browser workers, generates supported missing inputs, and returns results to the Streamlit table automatically. Expand the browser diagnostics panel below the app to see progress, select entrypoints, or adjust mock settings and the time limit.
 5. Read **Runs?**, **Test inputs**, **Reason**, and **Next step** for each student. **Yes — with mocks** means the tested code path finished with the recorded substitutes. **Unknown** means the available inputs or browser environment prevented a determination. See [Understanding run outcomes](#understanding-run-outcomes) for the other result categories.
 6. Inspect the evidence for each assignment part and record completion decisions separately. Download the **TA handoff ZIP** before closing or refreshing the page. Share it with another TA, who can open its readable HTML report offline or use its spreadsheets.
 
 Mock mode can generate supported data files and supply defined helper/API test doubles. Every substitution is recorded; original submissions and their assertions remain intact. A successful mock run verifies the tested path with those substitutes. Original data/helper/model behavior and assignment completion still need separate review. Unknown helper APIs or incompatible code may require a compatible fixture or the native edition.
+
+**When students include their actual documents:** the checker uses matching supplied files in both provided-input and mock modes. Exact paths take precedence. A unique case-insensitive basename can be staged at the referenced location, including an absolute laptop path. A unique numbered-upload name such as `book-1.txt` can also satisfy `book.txt`, with a recorded version assumption. File contents stay unchanged and path adjustments are logged. Different filenames or multiple candidate versions require an explicit mapping. Ambiguous supplied inputs are not replaced by generated data. A real book can still be tested with a mock course helper or lexicon when those are missing. The table and downloads list **Supplied files referenced** and **Mocks substituted** separately. This inventory identifies matched references; it does not prove every conditional code path read each file.
 
 ## Free GitHub Pages deployment
 
@@ -209,7 +211,7 @@ Exports are read-only snapshots. Record decisions and notes in the app, then exp
 
 ## Compatible mock fixtures and their boundaries
 
-In mock mode, the checker can resolve simple submitted path expressions and literal arguments passed into local reader functions. Unique exact basenames (case-insensitive) reuse supplied files without changing their contents. A sole HTML attachment may be staged at a requested HTML path as an explicitly unverified input alias. Provided files take precedence and originals remain unchanged.
+In both execution modes, the checker can resolve simple submitted path expressions and literal arguments passed into local reader functions. Unique exact basenames (case-insensitive) reuse supplied files without changing their contents. In mock mode, a sole HTML attachment may also be staged at a requested HTML path as an explicitly unverified input alias. Provided files take precedence and originals remain unchanged.
 
 Synthetic prose can include literal text boundaries, chapter headings and anchor phrases used by submitted readers. These fixture hints are recorded. No expected calculation outputs are copied, assertions suppressed, output files fabricated to satisfy assertions, or student code repaired. Synthetic lexicons have deterministic test weights/labels over available text vocabulary, not real trained annotations. This can exercise analysis code; it cannot validate findings about the actual book. Fixtures, inferred sizing, input aliases and path changes are retained in reports.
 

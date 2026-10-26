@@ -138,7 +138,7 @@ class MockInputTests(unittest.TestCase):
         (self.student/'book.txt').write_text('genuine supplied text')
         r=run_entrypoint(self.student,'main.py',10,mock=True)
         self.assertEqual(r['returncode'],0,r['log'])
-        self.assertFalse(r['mock_used']);self.assertTrue(r['mocks']['provided_files'])
+        self.assertFalse(r['mock_used']);self.assertTrue(r['supplied_inputs']['files'])
         self.assertFalse((self.student/'data/book.txt').exists())
 
     def test_expected_output_assertion_is_not_satisfied_by_a_fabricated_input(self):

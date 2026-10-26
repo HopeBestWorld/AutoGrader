@@ -2,23 +2,38 @@
 import re
 
 
+def input_inventory(result):
+    provided = list((result.get('supplied_inputs') or {}).get('files', []))
+    provided.extend((result.get('mocks') or {}).get('provided_files', []))
+    provided.extend(item for item in (result.get('mocks') or {}).get('manifest', [])
+                    if item.get('origin') == 'MOCK INPUT ALIAS' and item.get('original'))
+    supplied_files = list(dict.fromkeys(item.get('original') or item.get('file', '') for item in provided))
+    mock_files = [f'{item.get("file", "(unknown file)")} ({item.get("origin", "mock")})'
+                  for item in (result.get('mocks') or {}).get('manifest', [])]
+    return {'supplied_files': supplied_files, 'mock_files': mock_files}
+
+
 def summarize_attempt(result):
     status=str(result.get('status',''))
     log=str(result.get('log',''))
     manifests=(result.get('mocks') or {}).get('manifest',[])
     mock=bool(result.get('mock_used') or manifests or status.startswith('MOCK '))
-    inputs='Mock data / helpers' if mock else 'Supplied inputs'
+    inventory = input_inventory(result)
+    inputs=('Supplied files + mocks' if inventory['supplied_files'] else 'Mock data / helpers') if mock else 'Supplied inputs'
     matches=re.findall(r'(?m)^([\w.]+(?:Error|Exception|UnsupportedBrowserFeature)):\s*([^\n]*)',log)
     error,detail=matches[-1] if matches else (str(result.get('exception_type') or ''),'')
     reason=(error.rsplit('.',1)[-1]+': '+detail).strip(': ')[:350] if error else ''
-    out={'answer':'Unknown','category':'unknown','inputs':inputs,'reason':reason,'next_step':'Inspect the execution log.','original_inputs_verified':False}
+    out={'answer':'Unknown','category':'unknown','inputs':inputs,'reason':reason,'next_step':'Inspect the execution log.','original_inputs_verified':False,
+         'uses_mocks':mock, **inventory}
     if 'RUN SUCCEEDED' in status or 'RAN SUCCESSFULLY' in status or 'SMOKE TEST PASSED' in status:
         out.update(answer='Yes — with mocks' if mock else 'Yes — with supplied inputs',category='ran',reason='Entrypoint finished without an unhandled error.',next_step='No execution fix needed for this test. Review assignment coverage separately.')
         if mock: out['next_step']='This smoke test passed. Original-data behavior remains unverified.'
+        if mock and inventory['supplied_files']:
+            out['next_step']='This test passed with supplied file references and the listed substitutes. Review the mock list and assignment coverage; the substituted components remain unverified.'
         if 'Browser marimo cell adapter' in str(result.get('mode','')):
             out['reason']='All supported cells finished using the browser adapter; native marimo behavior was not tested.'
         if any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in manifests):
-            out.update(answer='Yes — with mock model API',inputs='Synthetic model replies + mock inputs',reason='Code finished using a model-API test double. No real model or AI inference ran.',next_step='This checks the caller’s execution path only; real model behavior and output quality remain unverified.')
+            out.update(answer='Yes — with mock model API',inputs='Supplied files + synthetic model replies / other mocks' if inventory['supplied_files'] else 'Synthetic model replies + mock inputs',reason='Code finished using a model-API test double. No real model or AI inference ran.',next_step='This checks the caller’s execution path only; real model behavior and output quality remain unverified.')
     elif not status or status.startswith('NOT RUN'):
         out.update(answer='Not tested',category='not_run',inputs='None',reason='No execution attempt was made.',next_step='Select an entrypoint and run it.')
         if 'NO UNAMBIGUOUS' in status:
@@ -55,10 +70,13 @@ def summarize_student(row):
     if passed!=len(attempts):
         chosen['reason']=f'{passed}/{len(attempts)} recorded attempts finished. '+chosen['reason']
     else:
-        mock=any(a['inputs']=='Mock data / helpers' for a in attempts)
+        mock=any(a['uses_mocks'] for a in attempts)
         chosen['answer']='Yes — includes mock runs' if mock else 'Yes — with supplied inputs'
         chosen['reason']=f'All {len(attempts)} recorded attempts finished. Results apply only to their tested inputs/runtime.'
     chosen['inputs']='; '.join(dict.fromkeys(a['inputs'] for a in attempts))
+    chosen['uses_mocks']=any(a['uses_mocks'] for a in attempts)
+    for key in ('supplied_files','mock_files'):
+        chosen[key]=list(dict.fromkeys(value for a in attempts for value in a[key]))
     return chosen
 
 

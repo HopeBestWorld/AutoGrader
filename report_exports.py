@@ -98,6 +98,8 @@ def overview_rows(report):
         row = {'Assignment': report.get('assignment', {}).get('title', 'Assignment'),
                'Exported at (UTC)': report.get('generated_at', 'Not recorded'),
                'Student': student['student'], 'Runs?': run['answer'], 'Test inputs': run['inputs'],
+               'Supplied files referenced': '; '.join(run['supplied_files']) or 'None matched',
+               'Mocks substituted': '; '.join(run['mock_files']) or 'None',
                'Run reason': run['reason'], 'Run next step': run['next_step'], 'Completion': summary['status'],
                'Parts marked complete': '; '.join(summary['reviewed_complete']) or 'None marked',
                'Parts marked incomplete': '; '.join(summary['reviewed_incomplete']) or 'None marked',
@@ -122,6 +124,8 @@ def checklist_rows(report):
                 'Assignment': report.get('assignment', {}).get('title', 'Assignment'),
                 'Exported at (UTC)': report.get('generated_at', 'Not recorded'),
                 'Student': student['student'], 'Runs?': run['answer'], 'Test inputs': run['inputs'],
+                'Supplied files referenced': '; '.join(run['supplied_files']) or 'None matched',
+                'Mocks substituted': '; '.join(run['mock_files']) or 'None',
                 'Part ID': summary['id'], 'Assignment part': summary['title'],
                 'Status': summary['status'], 'Reviewer decision': summary['review_decision'],
                 'Automatic evidence': summary['automatic_evidence'], 'What to check': summary['next_step'],
@@ -224,6 +228,7 @@ def html_report(report):
                  'runissue': run['category'] != 'ran', 'complete': summary['status'] == 'Complete (reviewed)'}
         attrs = ' '.join(f'data-{key}="{"yes" if value else "no"}"' for key, value in flags.items())
         chunks.append(f'<section class="student" id="student-{index}" data-name="{h(row["student"].lower())}" {attrs}><h3>{h(row["student"])}</h3><p><strong>Runs? {h(run["answer"])}</strong><br>Test inputs: {h(run["inputs"])}<br>{h(run["reason"])}<br>Run next step: {h(run["next_step"])}</p><p><strong>Completion: {h(summary["status"])}</strong></p>')
+        chunks.append(f'<p><strong>Supplied files referenced:</strong> {h("; ".join(run["supplied_files"]) or "None matched by the input inventory")}<br><strong>Mocks substituted:</strong> {h("; ".join(run["mock_files"]) or "None")}</p><p class="muted">Matched references describe files available to the test; they do not prove every file was read. Supplied documents can be used together with mock helpers or lexicons.</p>')
         if row.get('unmatched'):
             chunks.append('<p class="note">Student identity was not matched. Resolve these files before assigning results to a student.</p>')
         if summary['attention']:

@@ -1,9 +1,11 @@
-"""Read-only prerequisite discovery. Never imports student modules or installs guesses."""
+"""Static prerequisite discovery and staging in disposable copies; no student imports."""
 import ast
 from contextlib import contextmanager
+import hashlib
 import importlib.machinery
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+import re
 import shutil
 import sys
 import tempfile
@@ -108,7 +110,7 @@ def audit_prerequisites(folder):
             argument = None
             if name == 'open':
                 receiver = node.func.value if isinstance(node.func, ast.Attribute) else None
-                is_path_open = receiver is not None and literal_path(receiver, values) is not None
+                is_path_open = receiver is not None and not (isinstance(receiver, ast.Name) and receiver.id in ('io', 'builtins'))
                 argument = receiver if is_path_open else node.args[0] if node.args else None
                 mode_index = 0 if is_path_open else 1
                 mode = literal_path(node.args[mode_index], values) if len(node.args) > mode_index else 'r'
@@ -158,21 +160,37 @@ def audit_prerequisites(folder):
         # Resolve I/O inside local reader functions when the call supplies literal paths.
         definitions={n.name:n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef)}
         for call in ast.walk(tree):
-            if not isinstance(call,ast.Call) or not isinstance(call.func,ast.Name) or call.func.id not in READERS:continue
+            if not isinstance(call,ast.Call) or not isinstance(call.func,ast.Name):continue
             fn=definitions.get(call.func.id)
             if fn is None:continue
             bindings=dict(values)
+            for param,default in zip(fn.args.args[-len(fn.args.defaults):] if fn.args.defaults else [],fn.args.defaults):
+                value=literal_path(default,values)
+                if value is not None:bindings[param.arg]=value
             for param,arg in zip(fn.args.args,call.args):
                 value=literal_path(arg,values)
                 if value is not None:bindings[param.arg]=value
             for keyword in call.keywords:
                 value=literal_path(keyword.value,values)
                 if value is not None:bindings[keyword.arg]=value
+            for assignment in ast.walk(fn):
+                if isinstance(assignment,ast.Assign):
+                    value=literal_path(assignment.value,bindings)
+                    if value is not None:
+                        for target in assignment.targets:
+                            if isinstance(target,ast.Name):bindings[target.id]=value
             for read in ast.walk(fn):
                 if not isinstance(read,ast.Call):continue
                 reader=read.func.id if isinstance(read.func,ast.Name) else getattr(read.func,'attr','')
-                arg=read.func.value if reader in ('read_text','read_bytes') and isinstance(read.func,ast.Attribute) else read.args[0] if read.args else None
+                receiver=read.func.value if isinstance(read.func,ast.Attribute) else None
+                path_open=reader=='open' and receiver is not None and not (isinstance(receiver,ast.Name) and receiver.id in ('io','builtins'))
+                arg=receiver if path_open or reader in ('read_text','read_bytes') and receiver is not None else read.args[0] if read.args else None
                 if reader not in ('open','read_text','read_bytes','read_csv','read_table'):continue
+                if reader=='open':
+                    mode_arg=0 if path_open else 1
+                    mode=literal_path(read.args[mode_arg],bindings) if len(read.args)>mode_arg else None
+                    mode=next((literal_path(k.value,bindings) for k in read.keywords if k.arg=='mode'),mode)
+                    if mode and any(c in mode for c in 'wax') and '+' not in mode:continue
                 value=literal_path(arg,bindings)
                 if value is None or value.startswith(('http://','https://')):continue
                 target=(path.parent/value).resolve()
@@ -197,6 +215,71 @@ def prepared_submission(folder, shared=None, resources=None, mapping=None):
             event['origin'] = 'shared instructor files'
         changes = stage_paths(work, mapping or {})
         yield work, events + common, changes
+
+
+def provided_candidates(paths, basename):
+    """Prefer exact names, then a unique numbered-upload variant such as book-1.txt."""
+    exact = [p for p in paths if p.name.casefold() == basename.casefold()]
+    if exact:
+        return exact, 'Unique basename (case-insensitive); bytes unchanged'
+    requested = Path(basename)
+    numbered = [p for p in paths if p.suffix.casefold() == requested.suffix.casefold()
+                and re.sub(r'-[1-9]\d?$', '', p.stem).casefold() == requested.stem.casefold()
+                and p.stem.casefold() != requested.stem.casefold()]
+    return numbered, 'Unique numbered-upload filename; bytes unchanged. Confirm the supplied document version.'
+
+
+def stage_provided_inputs(work):
+    """Match referenced files within one disposable student copy, before any mocks.
+
+    Exact paths win. A unique basename can repair a downloaded/nested location or
+    a laptop's absolute path. Different names and ambiguous matches are not guessed.
+    This is an inventory of matched references, not a trace of actual file reads.
+    """
+    from grader_core import stage_paths
+    work = Path(work).resolve()
+    available = [p for p in work.rglob('*') if p.is_file()]
+    records, unresolved, mapping, seen = [], [], {}, set()
+    copied_bytes = 0
+    for item in audit_prerequisites(work)['inputs']:
+        value = item['path']
+        if value.startswith(('http://', 'https://')):
+            continue
+        target = (work / Path(item['source']).parent / value).resolve()
+        external = not target.is_relative_to(work) or PureWindowsPath(value).is_absolute()
+        basename = value.replace('\\', '/').rsplit('/', 1)[-1]
+        if external:
+            target = work / '_provided_inputs' / hashlib.sha256(value.encode()).hexdigest()[:12] / basename
+        if target in seen:
+            continue
+        seen.add(target)
+        if not external and target.is_file():
+            source, match = target, 'Submitted path'
+        else:
+            candidates, match = provided_candidates(available, basename)
+            if len(candidates) != 1:
+                if len(candidates) > 1:
+                    unresolved.append({'requested_path': value, 'reason': 'Multiple supplied files have this basename; select an exact path mapping.'})
+                continue
+            source = candidates[0]
+            if len(records) >= 64 or copied_bytes + source.stat().st_size > 128 * 1024**2:
+                unresolved.append({'requested_path': value, 'reason': 'Supplied-file staging budget exceeded; use an exact path mapping.'})
+                continue
+            if source != target:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                copied_bytes += source.stat().st_size
+            if external:
+                mapping[value] = str(target.relative_to(work))
+        digest = hashlib.sha256()
+        with source.open('rb') as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b''):
+                digest.update(block)
+        records.append({'file': str(target.relative_to(work)), 'original': str(source.relative_to(work)),
+                        'requested_path': value, 'source': item['source'], 'line': item['line'],
+                        'origin': 'SUPPLIED FILE', 'match': match, 'sha256': digest.hexdigest(), 'bytes': source.stat().st_size})
+    return {'files': records, 'unresolved': unresolved, 'path_changes': stage_paths(work, mapping) if mapping else [],
+            'note': 'Matched file references from this student’s execution copy. Static matching does not prove every file was read at runtime.'}
 
 
 def preflight_submission(folder, shared=None, resources=None, mapping=None):

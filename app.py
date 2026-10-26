@@ -26,6 +26,7 @@ def main():
         st.caption('Uploads stay in this browser session; this app does not send them to an autograding server. Export your report before leaving. Expanded archives are limited to 128 MiB.')
     st.write('Check whether code runs and review whether every assignment part is answered. No accuracy scores are assigned.')
     st.caption('Execution and completion are separate. Evidence matches help you find answers; they do not establish completion or correctness.')
+    st.caption('Documents bundled with each student’s submission are used first. Mock mode fills supported missing inputs; it does not replace matching supplied files. Reports list supplied file references and substitutions separately.')
 
     preset = st.selectbox('Assignment requirements', ['Assignment 7: Sentiment and Plot', 'Assignment 8: Reading Difficulty', 'Another assignment / upload checklist'])
     assignment = st.file_uploader('Assignment PDF, text checklist, or saved JSON checklist (optional override)', type=['pdf', 'txt', 'md', 'json'])
@@ -273,6 +274,9 @@ def main():
                 st.dataframe(result['mocks']['manifest'], hide_index=True)
             outcome = summarize_attempt(result)
             st.write('Run result:', outcome['answer'])
+            st.write('Supplied files referenced:', ', '.join(outcome['supplied_files']) or 'None matched by the input inventory')
+            st.write('Mocks substituted:', '; '.join(outcome['mock_files']) or 'None')
+            st.caption('This is a file-reference inventory; a match alone does not prove that every conditional code path read that file.')
             st.write('Reason:', outcome['reason'])
             st.write('Next step:', outcome['next_step'])
             with st.expander('Technical result details'):
@@ -290,6 +294,7 @@ def main():
         if run_filter!='All students' and outcome['category']!=categories[run_filter]: continue
         parts = summarize_parts(current)
         display_rows.append({'Student':current['student'],'Runs?':outcome['answer'],'Test inputs':outcome['inputs'],'Reason':outcome['reason'],'Next step':outcome['next_step'],
+                             'Supplied files referenced':'; '.join(outcome['supplied_files']) or 'None matched', 'Mocks substituted':'; '.join(outcome['mock_files']) or 'None',
                              'Completion':parts['status'], 'Parts marked complete':'; '.join(parts['reviewed_complete']) or 'None marked',
                              'Parts marked incomplete':'; '.join(parts['reviewed_incomplete']) or 'None marked',
                              'Check first':'; '.join(parts['check_first']) or 'No flagged gaps', 'Parts awaiting review':len(parts['awaiting_review'])})

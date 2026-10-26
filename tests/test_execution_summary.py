@@ -22,3 +22,22 @@ class ExecutionSummaryTests(unittest.TestCase):
     def test_counts_preserve_all_students(self):
         rows=[{'execution':[]},{'execution':[{'status':'BROWSER RUN SUCCEEDED'}]}, {'execution':[{'status':'BROWSER EXECUTION ERROR'}]}, {'execution':[{'status':'BLOCKED / UNSUPPORTED IN BROWSER'}]}]
         self.assertEqual(summarize_batch(rows),dict(ran=1,test_error=1,unknown=1,not_run=1))
+    def test_supplied_document_and_mock_helper_are_reported_separately(self):
+        result={'status':'MOCK BROWSER RUN SUCCEEDED','mock_used':True,
+                'supplied_inputs':{'files':[{'file':'data/book.txt','original':'book.txt'}]},
+                'mocks':{'manifest':[{'file':'sentiment_toolkit.py','origin':'BUNDLED MOCK HELPER'}]}}
+        summary=summarize_attempt(result)
+        self.assertEqual(summary['inputs'],'Supplied files + mocks')
+        self.assertEqual(summary['supplied_files'],['book.txt'])
+        self.assertIn('sentiment_toolkit.py',summary['mock_files'][0])
+        self.assertTrue(summary['uses_mocks'])
+        aggregate=summarize_student({'execution':[result,{'status':'BROWSER RUN SUCCEEDED'}]})
+        self.assertEqual(aggregate['answer'],'Yes — includes mock runs')
+        self.assertEqual(aggregate['supplied_files'],['book.txt'])
+    def test_provided_html_alias_names_actual_attachment_and_keeps_assumption(self):
+        result={'status':'MOCK BROWSER RUN SUCCEEDED','mocks':{'manifest':[
+            {'file':'book.html','original':'Provided novel.html','origin':'MOCK INPUT ALIAS'}]}}
+        summary=summarize_attempt(result)
+        self.assertEqual(summary['supplied_files'],['Provided novel.html'])
+        self.assertEqual(summary['mock_files'],['book.html (MOCK INPUT ALIAS)'])
+        self.assertTrue(summary['uses_mocks'])

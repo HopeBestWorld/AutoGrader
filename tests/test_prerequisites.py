@@ -76,5 +76,49 @@ class PrerequisiteTests(unittest.TestCase):
         rerun=run_entrypoint(self.student,'main.py',10,mapping={'/Users/student/book.txt':'book.txt'},resources=resource)
         self.assertEqual(rerun['returncode'],0,rerun['log'])
 
+    def test_provided_mode_matches_nested_and_laptop_paths_without_mocks(self):
+        for requested in ('data/book.txt', '/Users/student/book.txt', r'C:\Users\student\book.txt'):
+            with self.subTest(requested=requested):
+                source = f'assert open({requested!r}).read()=="genuine book"'
+                (self.student/'main.py').write_text(source)
+                (self.student/'Book.TXT').write_text('genuine book')
+                result = run_entrypoint(self.student, 'main.py', 10)
+                self.assertEqual(result['returncode'], 0, result['log'])
+                self.assertFalse(result['mock_used'])
+                self.assertEqual(result['supplied_inputs']['files'][0]['original'], 'Book.TXT')
+                self.assertEqual((self.student/'main.py').read_text(), source)
+                self.assertFalse((self.student/'data').exists())
+
+    def test_ambiguous_documents_are_not_selected_by_guess(self):
+        (self.student/'main.py').write_text('open("missing/book.txt").read()')
+        for folder in ('one', 'two'):
+            (self.student/folder).mkdir()
+            (self.student/folder/'book.txt').write_text(folder)
+        for mock in (False, True):
+            result = run_entrypoint(self.student, 'main.py', 10, mock=mock)
+            self.assertNotEqual(result['returncode'], 0)
+            self.assertFalse(result['supplied_inputs']['files'])
+            self.assertIn('Multiple supplied files', result['supplied_inputs']['unresolved'][0]['reason'])
+            self.assertFalse(result['mock_used'])
+
+    def test_numbered_upload_document_is_used_and_multiple_versions_need_selection(self):
+        source='from pathlib import Path\ndef read_uploaded(path="data/book.txt"):\n    p=Path(path)\n    return p.read_text()\nassert read_uploaded()=="ACTUAL VERSION"'
+        (self.student/'main.py').write_text(source)
+        (self.student/'book-1.txt').write_text('ACTUAL VERSION')
+        result=run_entrypoint(self.student,'main.py',10,mock=True)
+        self.assertEqual(result['returncode'],0,result['log'])
+        self.assertFalse(result['mock_used'])
+        self.assertEqual(result['supplied_inputs']['files'][0]['original'],'book-1.txt')
+        self.assertIn('numbered-upload',result['supplied_inputs']['files'][0]['match'])
+        self.assertEqual((self.student/'main.py').read_text(),source)
+        (self.student/'book-2.txt').write_text('ANOTHER VERSION')
+        result=run_entrypoint(self.student,'main.py',10,mock=True)
+        self.assertNotEqual(result['returncode'],0)
+        self.assertFalse(result['mock_used'])
+
+    def test_local_writer_is_not_mistaken_for_an_input_reader(self):
+        (self.student/'main.py').write_text('from pathlib import Path\ndef save(path):\n    with Path(path).open("w") as f:\n        f.write("created")\nsave("output.txt")')
+        self.assertEqual(audit_prerequisites(self.student)['inputs'],[])
+
 
 if __name__=='__main__': unittest.main()

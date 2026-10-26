@@ -199,9 +199,9 @@ def run_source(source, filename, model_apis=False):
 
 
 def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=False):
-    from prerequisites import prepared_submission, recovery_requirements
+    from prerequisites import prepared_submission, recovery_requirements, stage_provided_inputs
     from mock_inputs import prepare_mock_inputs
-    buffer=io.StringIO(); detail={}; mocks={'manifest':[]}; failure_kind=None; exception_type=None; action=None
+    buffer=io.StringIO(); detail={}; mocks={'manifest':[]}; supplied={'files':[]}; failure_kind=None; exception_type=None; action=None
     with prepared_submission(folder) as (work,_,_):
         original=os.getcwd(); old_path=sys.path[:]; old_home=os.environ.get('HOME');old_backend=os.environ.get('MPLBACKEND')
         saved_model_modules={}
@@ -209,6 +209,8 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
             os.environ['MPLBACKEND']='Agg'
             if mock:
                 os.environ['HOME']=str(work/'_mock_home')
+            supplied=stage_provided_inputs(work)
+            if mock:
                 mocks=prepare_mock_inputs(work,words=mock_words,model_apis=model_apis)
             if any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']):
                 saved_model_modules={k:v for k,v in sys.modules.items() if k=='transformers' or k.startswith('transformers.')}
@@ -246,6 +248,6 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
         status='INPUT / CODE MISMATCH — INCONCLUSIVE'
     if mock and mocks['manifest']:
         status='MOCK '+status+' — ORIGINAL INPUTS UNVERIFIED'
-    return {'file':entry,'status':status, 'failure_kind':failure_kind,'exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
+    return {'file':entry,'status':status, 'failure_kind':failure_kind,'exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'supplied_inputs':supplied, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
             'missing_resources':recovery_requirements(buffer.getvalue()) if status.startswith('BLOCKED') or 'BLOCKED' in status else [],
             'mock_home_redirected':mock, 'model_api_mock_requested':model_apis, 'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}

@@ -126,6 +126,20 @@ class ReportExportTests(unittest.TestCase):
         self.assertEqual(row['completion'], 'NOT APPLICABLE (reviewed)')
         self.assertFalse(row['completion_summary']['attention'])
 
+    def test_handoff_distinguishes_real_documents_and_mock_helpers(self):
+        report = fixture()
+        result = report['students'][0]['execution'][0]
+        result['supplied_inputs'] = {'files': [{'file': 'data/book.txt', 'original': 'book.txt'}]}
+        result['mocks'] = {'manifest': [{'file': 'sentiment_toolkit.py', 'origin': 'BUNDLED MOCK HELPER'}]}
+        files = handoff_files(report)
+        overview = list(csv.DictReader(io.StringIO(files['student-overview.csv'].decode('utf-8-sig'))))[0]
+        self.assertEqual(overview['Supplied files referenced'], 'book.txt')
+        self.assertEqual(overview['Test inputs'], 'Supplied files + mocks')
+        self.assertIn('sentiment_toolkit.py', overview['Mocks substituted'])
+        soup = BeautifulSoup(files['TA-report.html'], 'html.parser')
+        self.assertIn('Supplied files referenced: book.txt', soup.get_text())
+        self.assertIn('sentiment_toolkit.py (BUNDLED MOCK HELPER)', soup.get_text())
+
 
 if __name__ == '__main__':
     unittest.main()

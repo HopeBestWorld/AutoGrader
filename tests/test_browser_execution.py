@@ -36,6 +36,30 @@ if __name__=="__main__":
         result=self.run_code('assert len(open("absent.txt").read())>100',True)
         self.assertIn('MOCK BROWSER RUN SUCCEEDED',result['status'])
         self.assertIn('ORIGINAL INPUTS UNVERIFIED',result['status'])
+
+    def test_bundled_document_precedes_synthetic_text_and_can_mix_with_missing_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = 'assert open("data/book.txt").read()=="ACTUAL UPLOADED BOOK"\nprint(open("missing.csv").read()[:10])'
+            (root/'main.py').write_text(source)
+            (root/'book.txt').write_text('ACTUAL UPLOADED BOOK')
+            result = run_browser_entry(root, 'main.py', mock=True)
+            self.assertIn('RUN SUCCEEDED', result['status'], result['log'])
+            self.assertEqual(result['supplied_inputs']['files'][0]['original'], 'book.txt')
+            self.assertEqual([m['file'] for m in result['mocks']['manifest']], ['missing.csv'])
+            self.assertEqual((root/'main.py').read_text(), source)
+            self.assertEqual((root/'book.txt').read_text(), 'ACTUAL UPLOADED BOOK')
+            self.assertFalse((root/'data').exists())
+
+    def test_browser_provided_mode_uses_exact_document_without_synthetic_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'main.py').write_text('assert open("data/book.txt").read()=="REAL BOOK"')
+            (root/'book.txt').write_text('REAL BOOK')
+            result = run_browser_entry(root, 'main.py', mock=False)
+            self.assertEqual(result['status'], 'BROWSER RUN SUCCEEDED', result['log'])
+            self.assertFalse(result['mock_used'])
+            self.assertEqual(result['supplied_inputs']['files'][0]['original'], 'book.txt')
     def test_duplicate_exports_fail(self):
         source='import marimo\napp=marimo.App()\n@app.cell\ndef _():\n    x=1\n    return (x,)\n@app.cell\ndef _():\n    x=2\n    return (x,)'
         self.assertEqual(self.run_code(source)['status'],'BROWSER EXECUTION ERROR')

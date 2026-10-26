@@ -194,7 +194,7 @@ def infer_corpus_size(work, minimum):
 
 def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
     """Fill absent inputs only. Never generate Python implementations or edit originals."""
-    from prerequisites import audit_prerequisites
+    from prerequisites import audit_prerequisites, provided_candidates
     from grader_core import stage_paths
     if not 100 <= words <= 200000:
         raise ValueError('Mock corpus length must be between 100 and 200,000 words')
@@ -260,10 +260,13 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
         if sum(m['origin'] == 'AUTOMATIC SYNTHETIC DATA' for m in manifest) >= 64:
             unresolved.append({**item, 'reason': 'Automatic mock limit of 64 files reached; supply a fixture bundle.'})
             continue
-        candidates=[p for p in work.rglob('*') if p.is_file() and p.name.casefold()==target.name.casefold() and p!=target and not any(m['file']==str(p.relative_to(work)) for m in manifest)]
+        candidates,match_reason=provided_candidates([p for p in work.rglob('*') if p.is_file() and p!=target and not any(m['file']==str(p.relative_to(work)) for m in manifest)],target.name)
+        if len(candidates)>1:
+            unresolved.append({**item,'reason':'Multiple supplied files have this basename. Select an exact path mapping; synthetic data is not substituted for an ambiguous supplied input.'})
+            continue
         if len(candidates)==1:
             target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(candidates[0],target)
-            provided_files.append(manifest_entry(target,work,'STAGED PROVIDED FILE',original=str(candidates[0].relative_to(work)),reason='Unique exact basename match (case-insensitive); contents unchanged.'))
+            provided_files.append(manifest_entry(target,work,'STAGED PROVIDED FILE',original=str(candidates[0].relative_to(work)),reason=match_reason))
             if external:mappings[value]=str(target.relative_to(work))
             continue
         if target.suffix.lower() in ('.html','.htm'):
