@@ -9,10 +9,20 @@ panel.innerHTML=`<h2>Check submissions — free browser execution</h2>
 <label>Synthetic corpus word target <input id="run-mock-words" type="number" min="100" max="200000" value="30000"> (increase for hard-coded passage indices; does not recreate the original text)</label>
 <label>Worker time limit (includes runtime loading) <input id="run-timeout" type="number" min="15" max="600" value="120"> seconds</label>
 <p>Only upload code you are authorized to test. Browser workers are isolated from the review app but code can access the network. Mock or browser success does not verify original-data/native behavior or assignment completion.</p>
-<button id="run-review">1. Extract parts and review ZIP</button> <button id="run-code" disabled>2. Run detected entrypoints</button> <button id="run-download" disabled>Download combined report</button>
+<button id="run-review">1. Extract parts and review ZIP</button> <button id="run-code" disabled>2. Run detected entrypoints</button> <button id="run-handoff" disabled>Download TA handoff ZIP</button> <button id="run-download" disabled>Download combined report</button>
+<p>The TA handoff ZIP includes an offline readable report and per-part spreadsheets. Use the main Streamlit downloads to include completion decisions you recorded there.</p>
 <p id="run-status" role="status" aria-live="polite"></p><div id="run-results"></div>`;
 let report=null, inputs=null;
 const status=message=>document.getElementById('run-status').textContent=message;
+function waitForReportImport(digest) {
+ return new Promise(resolve=>{
+  const ready=()=>document.querySelector('#root #browser-report-ready')?.dataset.resultDigest===digest;
+  if(ready()){resolve(true);return;}
+  const observer=new MutationObserver(()=>{if(ready()){clearTimeout(timer);observer.disconnect();resolve(true);}});
+  const timer=setTimeout(()=>{observer.disconnect();resolve(false);},30000);
+  observer.observe(document.getElementById('root'),{subtree:true,childList:true,attributes:true});
+ });
+}
 async function encoded(file) {
  if(!file)return null;
  const bytes=new Uint8Array(await file.arrayBuffer());let binary='';
@@ -68,7 +78,7 @@ function render(){
  }
  report.execution_counts={ran:0,test_error:0,unknown:0,not_run:0};for(const row of report.students)report.execution_counts[row.run_summary.category]++;
 }
-for(const id of ['run-zip','run-instructions','run-preset'])document.getElementById(id).addEventListener('change',()=>{report=null;document.getElementById('run-code').disabled=true;document.getElementById('run-download').disabled=true;status('Inputs changed. Extract and review again.');});
+for(const id of ['run-zip','run-instructions','run-preset'])document.getElementById(id).addEventListener('change',()=>{report=null;document.getElementById('run-code').disabled=true;document.getElementById('run-download').disabled=true;document.getElementById('run-handoff').disabled=true;status('Inputs changed. Extract and review again.');});
 document.getElementById('run-review').onclick=async()=>{
  const file=document.getElementById('run-zip').files[0],instructions=document.getElementById('run-instructions').files[0];
  if(!file){status('Choose a submissions ZIP.');return;}
@@ -78,12 +88,13 @@ document.getElementById('run-review').onclick=async()=>{
   status('Loading browser Python and extracting assignment parts…');
   const result=await job({mode:'review'});
   if(!result.students)throw Error(result.log||'Review did not complete');
-  report=result;render();document.getElementById('run-code').disabled=false;document.getElementById('run-download').disabled=false;
+  report=result;render();document.getElementById('run-code').disabled=false;document.getElementById('run-download').disabled=false;document.getElementById('run-handoff').disabled=false;
   status(`Reviewed ${report.students.length} student groups and ${report.assignment.requirements.length} assignment parts. Evidence is a search aid, not a completion verdict.`);
  }catch(error){status(String(error));}finally{button.disabled=false;}
 };
 document.getElementById('run-code').onclick=async()=>{
  const button=document.getElementById('run-code');button.disabled=true;document.getElementById('run-review').disabled=true;
+ document.getElementById('run-handoff').disabled=true;document.getElementById('run-download').disabled=true;
  try{
   const mock=document.getElementById('run-mock').checked;
   for(const row of report.students){
@@ -100,14 +111,29 @@ document.getElementById('run-code').onclick=async()=>{
    }
   }
   render();
+  let imported=false;
   for(const input of document.querySelectorAll('#root input[type=file]')) {
    if(input.closest('[data-testid="stFileUploader"]')?.textContent.includes('Browser execution results (automatic)')) {
-    const transfer=new DataTransfer();transfer.items.add(new File([JSON.stringify(report)],'browser-results.json',{type:'application/json'}));
-    input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));break;
+    const content=JSON.stringify(report);
+    const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content))),b=>b.toString(16).padStart(2,'0')).join('');
+    const transfer=new DataTransfer();transfer.items.add(new File([content],'browser-results.json',{type:'application/json'}));
+    status('Browser runs finished. Updating the Streamlit table and TA downloads…');
+    input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+    imported=await waitForReportImport(digest);break;
    }
   }
-  status(`Browser checks completed. ${report.execution_counts.ran} ran, ${report.execution_counts.test_error} had a test error, ${report.execution_counts.unknown} remain undetermined, ${report.execution_counts.not_run} were not tested. Plain-language results are in the Streamlit table.`);
- }finally{button.disabled=false;document.getElementById('run-review').disabled=false;}
+  status(`Browser checks completed. ${report.execution_counts.ran} ran, ${report.execution_counts.test_error} had a test error, ${report.execution_counts.unknown} remain undetermined, ${report.execution_counts.not_run} were not tested. `+(imported?'The Streamlit table and TA downloads are updated.':'Use the downloads in browser diagnostics; the Streamlit import has not been confirmed.'));
+ }finally{button.disabled=false;document.getElementById('run-review').disabled=false;document.getElementById('run-handoff').disabled=false;document.getElementById('run-download').disabled=false;}
+};
+document.getElementById('run-handoff').onclick=async()=>{
+ const button=document.getElementById('run-handoff');button.disabled=true;
+ try{
+  const result=await job({mode:'export',report});
+  const bytes=Uint8Array.from(atob(result.archive),c=>c.charCodeAt(0));
+  const url=URL.createObjectURL(new Blob([bytes],{type:'application/zip'}));
+  const a=document.createElement('a');a.href=url;a.download='TA-handoff.zip';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  status('TA handoff downloaded. Open TA-report.html from the ZIP, or share the ZIP with another TA. Evidence matches still need review.');
+ }catch(error){status('Could not create TA handoff: '+String(error));}finally{button.disabled=false;}
 };
 document.getElementById('run-download').onclick=()=>{
  const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));

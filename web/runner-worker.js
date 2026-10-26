@@ -14,6 +14,11 @@ onmessage = async ({data}) => {
       py.FS.writeFile(path,source);
     }
     py.globals.set('job_json',JSON.stringify(data));
+    if(data.mode==='export') {
+      const encoded=await py.runPythonAsync(`import sys,json,base64\nsys.path.insert(0,'/app')\nfrom report_exports import handoff_files,handoff_zip\nbase64.b64encode(handoff_zip(handoff_files(json.loads(job_json)['report']))).decode('ascii')`);
+      postMessage({ok:true,result:{archive:encoded}});
+      return;
+    }
     await py.runPythonAsync(`import sys,json,base64,io,tempfile\nfrom pathlib import Path\nsys.path.insert(0,'/app')\njob=json.loads(job_json)\nfrom grader_core import group_submissions,load_profile,review_folder,serializable_report\nfrom browser_execution import run_browser_entry\nroot=Path(tempfile.mkdtemp())\ngroups=group_submissions(io.BytesIO(base64.b64decode(job['archive'])),root)\n`);
     if (data.mode==='run') {
       const imports=py.runPython("'\\n'.join(p.read_text(errors='replace') for p in groups[job['student']].rglob('*.py'))");

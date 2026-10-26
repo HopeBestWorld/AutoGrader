@@ -8,8 +8,9 @@ import zipfile
 
 import streamlit as st
 from execution_summary import summarize_student, summarize_batch, summarize_attempt
+from report_exports import handoff_files, handoff_zip, summarize_parts
 from prerequisites import preflight_submission
-from grader_core import (normalize_execution_results, native_execution_available, completion_status, group_submissions, load_profile, profile_digest,
+from grader_core import (normalize_execution_results, native_execution_available, group_submissions, load_profile, profile_digest,
                          review_folder, run_entrypoint, safe_extract, serializable_report,
                          unpack_nested, validate_profile)
 
@@ -59,7 +60,7 @@ def main():
         if native_execution:
             st.info('Student programs run with this machine’s permissions. Use a disposable environment without sensitive files. Temporary folders and stripped child-process credentials do not provide a security sandbox.')
         else:
-            st.write('Execution is unavailable in the browser edition. Both provided-input and mock execution remain available in the native Python edition.')
+            st.write('These settings apply to native Python execution. On GitHub Pages, use Run browser checks (with mocks); browser settings and progress are in the diagnostics panel below.')
         execution_mode = st.selectbox('Execution mode', ['Provided inputs', 'Mock inputs — smoke test only'], disabled=not native_execution)
         mock_enabled = execution_mode.startswith('Mock')
         mock_fixtures = None
@@ -111,6 +112,7 @@ def main():
         return
     rows = state['rows']
     browser_results_applied = False
+    browser_result_digest = None
     if browser_result_upload:
         try:
             incoming = json.loads(browser_result_upload.getvalue())
@@ -123,6 +125,7 @@ def main():
                     if current['student'] in lookup:
                         current['execution'] = normalize_execution_results(lookup[current['student']].get('execution',[]))
                 browser_results_applied = any(r['execution'] for r in rows)
+                browser_result_digest = hashlib.sha256(browser_result_upload.getvalue()).hexdigest()
         except (ValueError,TypeError,KeyError) as exc:
             st.warning(f'Cannot read browser execution results: {exc}')
 
@@ -133,8 +136,8 @@ def main():
     if browser_results_applied:
         st.info('Browser execution results are displayed below. These are browser/mock checks, not native marimo validation.')
     elif not native_execution:
-        st.warning('This table is static review only: code has NOT been run here. Missing inputs are not diagnosed by the NOT RUN label. Actual execution results and mock logs are in the browser execution panel above.')
-        st.markdown('<a href="#browser-runner" target="_self">Go to browser execution and mock smoke tests ↑</a>', unsafe_allow_html=True)
+        st.warning('Code has not been run for this review yet. Click Run browser checks (with mocks) to test supported entrypoints; open browser diagnostics below for progress.')
+        st.markdown('<a href="#browser-runner" target="_self">Go to browser execution diagnostics ↓</a>', unsafe_allow_html=True)
     counts_placeholder = st.empty()
     run_filter = st.selectbox('Show run outcomes', ['All students','Ran successfully','Run hit an error','Cannot determine','Not tested'])
     table = st.empty()
@@ -221,6 +224,9 @@ def main():
         st.dataframe(row['word_counts'], hide_index=True)
     for issue in row['issues']:
         st.warning(issue)
+    st.write('**Part-by-part review checklist**')
+    part_table = st.empty()
+    st.caption('Check flagged gaps first. Complete and Incomplete are reviewer decisions; automatic evidence matches still need confirmation. Update decisions below; exports include your latest decisions.')
     with st.expander('Original submission files'):
         chosen_file = st.selectbox('Original file', row['files'], key=f'original-{review_id}-{student}') if row['files'] else None
         if chosen_file and st.checkbox('Load original file for inspection', key=f'load-original-{review_id}-{student}'):
@@ -255,6 +261,10 @@ def main():
             decisions = ['Needs review', 'Complete', 'Incomplete', 'Not applicable']
             req['review'] = st.selectbox('Completion decision', decisions, index=decisions.index(req['review']), key=f'decision-{key}')
             req['review_note'] = st.text_area('Reviewer note', req['review_note'], key=f'note-{key}')
+    part_review = summarize_parts(row)
+    part_table.dataframe([{'Assignment part': p['title'], 'Status': p['status'], 'What to check': p['next_step'],
+                          'Evidence location': '; '.join(p['evidence_locations']) or 'Inspect originals', 'Reviewer note': p['reviewer_note']}
+                         for p in part_review['parts']], hide_index=True)
     for index, result in enumerate(row['execution']):
         with st.expander(f'{result.get("file") or "(no entrypoint)"}: {result.get("status", "RESULT INCOMPLETE")}'):
             if result.get('mock_used'):
@@ -278,8 +288,11 @@ def main():
     for current in rows:
         outcome=summarize_student(current)
         if run_filter!='All students' and outcome['category']!=categories[run_filter]: continue
+        parts = summarize_parts(current)
         display_rows.append({'Student':current['student'],'Runs?':outcome['answer'],'Test inputs':outcome['inputs'],'Reason':outcome['reason'],'Next step':outcome['next_step'],
-                             'Candidate evidence':f'{sum(bool(q["evidence"]) for q in current["requirements"])}/{len(current["requirements"])} parts','Completion':completion_status(current)})
+                             'Completion':parts['status'], 'Parts marked complete':'; '.join(parts['reviewed_complete']) or 'None marked',
+                             'Parts marked incomplete':'; '.join(parts['reviewed_incomplete']) or 'None marked',
+                             'Check first':'; '.join(parts['check_first']) or 'No flagged gaps', 'Parts awaiting review':len(parts['awaiting_review'])})
     table.dataframe(display_rows,hide_index=True)
     counts=summarize_batch(rows)
     counts_placeholder.info(f"{counts['ran']} ran successfully · {counts['test_error']} hit a test error · {counts['unknown']} cannot be determined · {counts['not_run']} not tested. Success applies only to the tested inputs/runtime.")
@@ -287,13 +300,19 @@ def main():
     report = serializable_report(profile, rows)
     report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser execution subset' if browser_results_applied else 'browser review', 'browser_execution':browser_results_applied}
     report['archive_sha256'] = hashlib.sha256(archive.getvalue()).hexdigest()
-    st.download_button('Download report with review decisions and execution logs', json.dumps(report, indent=2), 'submission-report.json', 'application/json')
-    import csv
-    csv_buffer=io.StringIO()
-    if display_rows:
-        csv_writer=csv.DictWriter(csv_buffer,fieldnames=list(display_rows[0]));csv_writer.writeheader();csv_writer.writerows(display_rows)
-    st.download_button('Download plain-language results CSV',csv_buffer.getvalue(),'run-results.csv','text/csv')
+    st.subheader('Download and share with another TA')
+    st.write('Start with the TA handoff ZIP: it includes an offline report, a student overview spreadsheet, a part-by-part checklist, and detailed execution records. Every assignment part shows its reviewed decision or what still needs checking.')
+    st.caption('Downloads include ALL students, regardless of the outcome filter above. The HTML report supports search, filters, and printing to PDF. It is a read-only snapshot; record decisions here and export again.')
+    files = handoff_files(report)
+    st.download_button('Download TA handoff ZIP', handoff_zip(files), 'TA-handoff.zip', 'application/zip', type='primary')
+    st.download_button('Download readable TA report (HTML)', files['TA-report.html'], 'TA-report.html', 'text/html')
+    st.download_button('Download plain-language results CSV', files['student-overview.csv'], 'student-overview.csv', 'text/csv')
+    st.download_button('Download part-by-part checklist CSV', files['part-checklist.csv'], 'part-checklist.csv', 'text/csv')
+    st.download_button('Download report with review decisions and execution logs', files['submission-report.json'], 'submission-report.json', 'application/json')
     st.caption('Download before leaving the session; results are held in memory. The original Canvas ZIP remains your source for all files and attachments.')
+    if browser_result_digest:
+        # The browser bridge waits for this marker after the updated downloads render.
+        st.markdown(f'<span id="browser-report-ready" data-result-digest="{browser_result_digest}"></span>', unsafe_allow_html=True)
 
 
 if __name__ == '__main__':

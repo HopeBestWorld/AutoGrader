@@ -13,7 +13,7 @@ The GitHub Pages app runs Streamlit and supported Python submissions in your bro
 3. Upload the **Canvas submissions ZIP**, including the students' executable source files. Saved outputs alone cannot be executed.
 4. Click **Run browser checks (with mocks)**. The app runs detected entrypoints in fresh browser workers, generates supported missing inputs, and returns results to the Streamlit table automatically. Expand the browser diagnostics panel below the app to see progress, select entrypoints, or adjust mock settings and the time limit.
 5. Read **Runs?**, **Test inputs**, **Reason**, and **Next step** for each student. **Yes — with mocks** means the tested code path finished with the recorded substitutes. **Unknown** means the available inputs or browser environment prevented a determination. See [Understanding run outcomes](#understanding-run-outcomes) for the other result categories.
-6. Inspect the evidence for each assignment part and record completion decisions separately. Download the **plain-language results CSV** and the **report with review decisions and execution logs** before closing or refreshing the page.
+6. Inspect the evidence for each assignment part and record completion decisions separately. Download the **TA handoff ZIP** before closing or refreshing the page. Share it with another TA, who can open its readable HTML report offline or use its spreadsheets.
 
 Mock mode can generate supported data files and supply defined helper/API test doubles. Every substitution is recorded; original submissions and their assertions remain intact. A successful mock run verifies the tested path with those substitutes. Original data/helper/model behavior and assignment completion still need separate review. Unknown helper APIs or incompatible code may require a compatible fixture or the native edition.
 
@@ -177,6 +177,35 @@ The main table now has **Runs?**, **Test inputs**, **Reason**, and **Next step**
 - **Not tested** means no attempt occurred, for example because executable source was missing. Saved output snapshots cannot replace source code.
 
 Several recorded attempts are summarized conservatively: one successful attempt does not hide another attempt's failure or block.
+
+## Downloading results and sharing with another TA
+
+Choose **Download TA handoff ZIP** in the main Streamlit interface. It includes:
+
+| File | Use |
+| --- | --- |
+| `START-HERE.txt` | Brief instructions and a guide to interpreting the results. |
+| `TA-report.html` | Offline report with a class overview, student search, review filters, and a checklist for every student. Click a student or part to inspect criteria, candidate excerpts, file/line locations, and reviewer notes. Use **Print / save PDF** to print the current selection. |
+| `student-overview.csv` | One row per student with run outcomes, completed/incomplete parts, parts to check first, and a status column for each assignment part. |
+| `part-checklist.csv` | One row per student and assignment part, with the decision, automatic evidence, criteria, suggested next check, evidence locations/excerpts, and reviewer note. |
+| `submission-report.json` | Detailed records, including completion summaries, execution logs, and mock substitution manifests. |
+
+The HTML and CSV files can also be downloaded individually. All downloads include every student, even when the on-screen run filter hides some students. CSV files use UTF-8 with a BOM for spreadsheet compatibility, and potentially executable formula cells are prefixed with an apostrophe.
+
+Each part clearly distinguishes the grader's decision from the automatic evidence search:
+
+| Part status | Meaning for the next TA |
+| --- | --- |
+| **Complete (reviewed)** | A grader marked this part complete. |
+| **Incomplete (reviewed)** | A grader marked this part incomplete; inspect their note and the unmet criteria. |
+| **Check: no evidence found** | Search the original submission and attachments; an absent match does not prove an absent answer. |
+| **Check: partial evidence** | Some evidence was found; check the missing answer types and every criterion. |
+| **Review: evidence found** | Candidate answers were found; confirm that they address every criterion. |
+| **Not applicable (reviewed)** | A grader marked the part not applicable. |
+
+The review queue puts marked-incomplete parts and evidence gaps first, followed by remaining candidate answers to confirm. Successful code execution never automatically marks parts complete. No accuracy grades are assigned.
+
+Exports are read-only snapshots. Record decisions and notes in the app, then export again; reports cannot currently restore a review session. Keep the original Canvas ZIP available for full source and attachments; the handoff includes candidate excerpts rather than all original files. The advanced browser diagnostics panel can also export a TA handoff ZIP from its browser results. Use the main Streamlit downloads to include the latest completion decisions made in that interface. Reports contain student evidence, so share them through your usual course channel; uploaded files and generated reports are not published to GitHub Pages.
 
 ## Compatible mock fixtures and their boundaries
 

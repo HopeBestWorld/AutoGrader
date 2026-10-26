@@ -1,6 +1,10 @@
 from pathlib import Path
+import csv
+import io
+import json
 import sys
 import unittest
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from streamlit.testing.v1 import AppTest
@@ -84,6 +88,42 @@ class AppTests(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertFalse(any(s.label == 'Completion decision' for s in at.selectbox))
         self.assertTrue(any('new review' in i.value for i in at.info))
+
+    def test_ta_exports_reflect_latest_decisions_and_include_filtered_out_students(self):
+        script = UI.replace("class Upload(io.BytesIO):", "    z.writestr('other_124_457_main.py', 'print(2)')\nclass Upload(io.BytesIO):")
+        script = script.replace('import app\napp.main()', '''
+original_download = st.download_button
+st.session_state['downloads'] = {}
+def capture_download(label, data, *args, **kwargs):
+    st.session_state['downloads'][label] = data
+    return original_download(label, data, *args, **kwargs)
+import app
+from unittest.mock import patch
+with patch('streamlit.download_button', side_effect=capture_download):
+    app.main()
+''')
+        at = AppTest.from_string(script).run(timeout=30)
+        next(b for b in at.button if b.label.startswith('Review submissions')).click().run(timeout=30)
+        self.assertFalse(at.exception)
+        decisions = [s for s in at.selectbox if s.label == 'Completion decision']
+        decisions[0].select('Complete').run()
+        [s for s in at.selectbox if s.label == 'Completion decision'][1].select('Incomplete').run()
+        [s for s in at.text_area if s.label == 'Reviewer note'][1].set_value('Please add the book title.').run()
+        next(s for s in at.selectbox if s.label == 'Show run outcomes').select('Ran successfully').run()
+        self.assertFalse(at.exception)
+        with zipfile.ZipFile(io.BytesIO(at.session_state['downloads']['Download TA handoff ZIP'])) as archive:
+            report = json.loads(archive.read('submission-report.json'))
+            self.assertEqual(len(report['students']), 2)
+            summary = report['students'][0]['completion_summary']
+            self.assertEqual(summary['parts'][0]['status'], 'Complete (reviewed)')
+            self.assertEqual(summary['parts'][1]['status'], 'Incomplete (reviewed)')
+            self.assertEqual(summary['parts'][1]['reviewer_note'], 'Please add the book title.')
+            checklist = list(csv.DictReader(io.StringIO(archive.read('part-checklist.csv').decode('utf-8-sig'))))
+            self.assertEqual(len(checklist), 12)
+            self.assertIn('Please add the book title.', archive.read('TA-report.html').decode())
+        table = next(frame.value for frame in at.dataframe if 'Assignment part' in frame.value.columns)
+        self.assertEqual(table.iloc[0]['Status'], 'Complete (reviewed)')
+        self.assertEqual(table.iloc[1]['Reviewer note'], 'Please add the book title.')
 
 
 if __name__ == '__main__': unittest.main()

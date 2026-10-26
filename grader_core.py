@@ -356,6 +356,8 @@ def completion_status(row):
         return 'INCOMPLETE (reviewed)'
     if all(s in ('Complete', 'Not applicable') for s in statuses) and any(s == 'Complete' for s in statuses):
         return 'COMPLETE (reviewed)'
+    if statuses and all(s == 'Not applicable' for s in statuses):
+        return 'NOT APPLICABLE (reviewed)'
     return 'NEEDS REVIEW'
 
 
@@ -563,7 +565,8 @@ def normalize_execution_results(results):
 
 def serializable_report(profile, rows):
     from execution_summary import summarize_student, summarize_batch
+    from report_exports import summarize_parts
     return {'schema_version': 1, 'execution_counts':summarize_batch(rows), 'assignment': profile, 'assignment_digest': profile_digest(profile),
             'policy': 'No accuracy grading. Static matches are evidence candidates; completion requires review. Execution is independent. Mock smoke-test success does not verify original-input behavior or completion.',
-            'students': [{**row, 'completion': completion_status(row), 'run_summary':summarize_student(row),
+            'students': [{**row, 'completion': completion_status(row), 'completion_summary': summarize_parts(row), 'run_summary':summarize_student(row),
                           'execution': [{k: v for k, v in e.items() if k != 'artifact'} for e in row['execution']]} for row in rows]}
