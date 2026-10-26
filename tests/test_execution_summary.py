@@ -1,5 +1,5 @@
 import unittest
-from execution_summary import summarize_attempt,summarize_student,summarize_batch
+from execution_summary import summarize_attempt,summarize_student,summarize_batch,retryable_browser_result
 
 class ExecutionSummaryTests(unittest.TestCase):
     def test_mock_success_is_not_original_input_verification(self):
@@ -41,3 +41,18 @@ class ExecutionSummaryTests(unittest.TestCase):
         self.assertEqual(summary['supplied_files'],['Provided novel.html'])
         self.assertEqual(summary['mock_files'],['book.html (MOCK INPUT ALIAS)'])
         self.assertTrue(summary['uses_mocks'])
+
+    def test_loading_timeout_and_execution_timeout_are_not_student_failures(self):
+        for kind,phrase in [('browser_startup_timeout','loading time limit'),('browser_execution_timeout','code time limit')]:
+            result={'status':'BROWSER TIMEOUT — INCONCLUSIVE','failure_kind':kind,'retryable':True}
+            summary=summarize_attempt(result)
+            self.assertEqual(summary['category'],'unknown')
+            self.assertIn(phrase,summary['answer'])
+            self.assertTrue(retryable_browser_result(result))
+
+    def test_legacy_generic_errors_and_known_code_errors_have_distinct_recovery(self):
+        result={'status':'BROWSER RUNTIME BLOCKED','log':'Error'}
+        self.assertIn('without detailed diagnostics',summarize_attempt(result)['reason'])
+        self.assertTrue(retryable_browser_result(result))
+        self.assertFalse(retryable_browser_result({'status':'BROWSER RUNTIME BLOCKED','retryable':False}))
+        self.assertFalse(retryable_browser_result({'status':'MOCK BROWSER EXECUTION ERROR','exception_type':'NameError'}))

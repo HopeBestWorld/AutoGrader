@@ -276,8 +276,11 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
             frame=exc.__traceback__
             while frame and frame.tb_next:frame=frame.tb_next
             unsupported_fixture=isinstance(exc,NotImplementedError) and frame and any(str(work/m['file'])==frame.tb_frame.f_code.co_filename for m in mocks['manifest'] if m['file'].endswith('.py'))
-            failure_kind='unsupported_mock_api' if unsupported_fixture else 'mock_input_or_code_mismatch' if mocks['manifest'] and isinstance(exc,(KeyError,IndexError)) else 'runtime_error'
-            if unsupported_fixture:
+            failure_kind='browser_resource_limit' if isinstance(exc,MemoryError) else 'unsupported_mock_api' if unsupported_fixture else 'mock_input_or_code_mismatch' if mocks['manifest'] and isinstance(exc,(KeyError,IndexError)) else 'runtime_error'
+            if isinstance(exc,MemoryError):
+                status='BROWSER RUNTIME BLOCKED'
+                action='Browser memory was exhausted. Retry in a fresh worker or use native Python for this workload.'
+            elif unsupported_fixture:
                 status='BLOCKED / UNSUPPORTED MOCK API'
                 action='This call exceeds the reviewed fixture contract. Supply the real helper/model or a compatible fixture before retrying.'
             else:
@@ -297,6 +300,6 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
         status='INPUT / CODE MISMATCH — INCONCLUSIVE'
     if mock and mocks['manifest']:
         status='MOCK '+status+' — ORIGINAL INPUTS UNVERIFIED'
-    return {'file':entry,'status':status, 'failure_kind':failure_kind,'exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'supplied_inputs':supplied, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
+    return {'file':entry,'status':status, 'failure_kind':failure_kind,'retryable':failure_kind=='browser_resource_limit','exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'supplied_inputs':supplied, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
             'missing_resources':recovery_requirements(buffer.getvalue()) if status.startswith('BLOCKED') or 'BLOCKED' in status else [],
             'mock_home_redirected':mock, 'model_api_mock_requested':model_apis, 'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}

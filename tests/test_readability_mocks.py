@@ -46,6 +46,12 @@ rt.feature_table([rt.load_parser()('A sentence.')],[rt.Measure('depth','Custom d
         self.assertEqual(result['failure_kind'],'runtime_error')
         self.assertIn('USER_TODO',result['log'])
 
+    def test_browser_memory_limit_is_inconclusive_and_retryable(self):
+        result=self.run_code("raise MemoryError('runtime heap exhausted')")
+        self.assertEqual(result['failure_kind'],'browser_resource_limit')
+        self.assertTrue(result['retryable'])
+        self.assertIn('BLOCKED',result['status'])
+
     def test_reference_and_model_fixtures_are_explicit_and_scoped(self):
         result=self.run_code('''import readability_tools as rt
 reference=rt.load_clear()

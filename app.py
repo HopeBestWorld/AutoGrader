@@ -7,7 +7,7 @@ import tempfile
 import zipfile
 
 import streamlit as st
-from execution_summary import summarize_student, summarize_batch, summarize_attempt
+from execution_summary import summarize_student, summarize_batch, summarize_attempt, retryable_browser_result
 from report_exports import handoff_files, handoff_zip, summarize_parts
 from prerequisites import preflight_submission
 from grader_core import (normalize_execution_results, native_execution_available, group_submissions, load_profile, profile_digest,
@@ -86,6 +86,7 @@ def main():
     browser_run_requested = st.button('Run submissions', type='primary') if not native_execution else False
     if not native_execution:
         st.caption('Uses supplied files first and automatically fills supported missing files or helpers with test substitutes. Results show what was used. No mode selection is needed.')
+        st.markdown('<div id="submission-run-progress" role="status" aria-live="polite"></div>',unsafe_allow_html=True)
     if browser_run_requested:
         st.info('Browser execution started. Results will return to this table automatically. Open browser execution diagnostics below for progress.')
 
@@ -133,6 +134,9 @@ def main():
         st.warning('No submissions found in this archive.')
         return
     st.subheader('Submission results')
+    if not native_execution and any(e.get('file') and retryable_browser_result(e) for row in rows for e in row['execution']):
+        st.button('Retry interrupted runs')
+        st.caption('Retries browser timeouts and runtime interruptions. Completed runs and code-error results are kept.')
     if browser_results_applied:
         st.info('Browser execution results are displayed below. These are browser/mock checks, not native marimo validation.')
     elif not native_execution:

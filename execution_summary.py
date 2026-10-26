@@ -2,6 +2,11 @@
 import re
 
 
+def retryable_browser_result(result):
+    if 'retryable' in result:return bool(result['retryable'])
+    return str(result.get('status','')).startswith(('BROWSER TIMEOUT','BROWSER STARTUP TIMEOUT','BROWSER EXECUTION TIMEOUT','BROWSER RUNTIME BLOCKED'))
+
+
 def input_inventory(result):
     provided = list((result.get('supplied_inputs') or {}).get('files', []))
     provided.extend((result.get('mocks') or {}).get('provided_files', []))
@@ -40,6 +45,17 @@ def summarize_attempt(result):
             out.update(reason='No single runnable entrypoint was selected or detected.',next_step='Supply executable Python source, or select the main script. Output snapshots alone cannot be executed.')
         elif 'UNKNOWN STUDENT' in status:
             out.update(reason='Files could not be assigned to a student.',next_step='Check Canvas file names before selecting an entrypoint.')
+    elif result.get('failure_kind')=='browser_startup_timeout':
+        out.update(answer='Unknown — loading time limit',reason='Python or package loading reached its startup deadline; submitted code had not started.',next_step='Retry interrupted runs. Check browser memory and connectivity if loading keeps failing.')
+    elif result.get('failure_kind')=='browser_execution_timeout':
+        out.update(answer='Unknown — code time limit',reason='Submitted code reached its execution deadline after runtime loading finished.',next_step='Retry interrupted runs. If it persists, inspect performance or increase the execution limit.')
+    elif result.get('failure_kind')=='browser_app_version_unavailable':
+        out.update(answer='Unknown — app refresh needed',reason=log[:350] or 'The application version used by this tab is no longer available.',next_step=result.get('action') or 'Save the current report, refresh the app, and upload the ZIP again.')
+    elif result.get('failure_kind')=='browser_job_error' and result.get('retryable') is False:
+        out.update(answer='Unknown — browser job blocked',reason=log[:350] or 'The worker rejected the job inputs.',next_step='Inspect the retained archive/input error and review the current uploads again.')
+    elif result.get('failure_kind') in ('browser_worker_error','browser_message_error','browser_job_error','browser_resource_limit'):
+        phase=result.get('runtime_phase') or (result.get('browser_runtime') or {}).get('phase') or 'unknown phase'
+        out.update(answer='Unknown — browser runtime stopped',reason=reason or f'The browser worker stopped during {phase}. '+log[:220],next_step='Retry interrupted runs. Inspect the retained phase/error details if the browser keeps stopping.')
     elif 'TIMEOUT' in status:
         out.update(answer='Unknown — time limit',reason='The worker reached its time limit; runtime loading is included.',next_step='Increase the time limit, then retry. No pass or failure of original code is established.')
     elif mock and any(m.get('format')=='synthetic prose' for m in manifests) and any(s in detail for s in ('substring not found','start and end markers','No chapter headings matched','phrase not found:')):
@@ -49,7 +65,9 @@ def summarize_attempt(result):
     elif result.get('failure_kind')=='unsupported_mock_api':
         out.update(answer='Unknown — mock API unsupported',reason=reason or 'This call exceeds the reviewed fixture contract.',next_step=result.get('action') or 'Supply the original helper/model or a compatible fixture.')
     elif 'BLOCKED' in status or 'UNSUPPORTED' in status or 'UNAVAILABLE' in status:
-        if 'ModuleNotFoundError' in log or 'ImportError' in log:
+        if status=='BROWSER RUNTIME BLOCKED':
+            out.update(answer='Unknown — browser runtime stopped',reason=log[:350] if log.strip() and log.strip()!='Error' else 'The browser worker stopped without detailed diagnostics; this does not establish a student-code failure.',next_step='Retry interrupted runs with the updated checker to record the loading/execution phase.')
+        elif 'ModuleNotFoundError' in log or 'ImportError' in log:
             out.update(answer='Unknown — dependency missing',reason=reason or 'A dependency is missing or unavailable in browser Python.',next_step='Supply the real helper or use a browser-compatible package. If it requires a native runtime, this browser test cannot determine the result.')
         elif 'FileNotFoundError' in log or 'No such file or directory' in log:
             out.update(answer='Unknown — input missing',reason=reason or 'A required input file was not available.',next_step='Supply that file or a compatible fixture. Automatic mocks do not cover every path or format.')

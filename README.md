@@ -39,7 +39,9 @@ The Streamlit interface is the primary Pages interface. After uploading the ZIP 
 
 The diagnostics panel accepts a submissions ZIP and assignment PDF/text/JSON. Click **1. Extract parts and review ZIP** to extract numbered requirements and collect candidate code/prose evidence. Expand student results to select students and entrypoints, then click **2. Run detected entrypoints**. Download the combined report with execution logs and per-part evidence. The fallback Assignment 7/8 checklists work when no instructions are uploaded. For scanned/unstructured instructions, supply a text or JSON checklist; inspect extracted parts before relying on them. No AI service, API key, organization, or paid backend is used.
 
-Each execution starts in a fresh Pyodide Web Worker, which is terminated on timeout. The timeout includes runtime/package loading. Ordinary Python runs as submitted with real assertions/errors. Supported Pyodide packages are loaded from their published distribution. A limited marimo adapter executes submitted cell function bodies in returned-variable dependency order and supports basic markdown/stack display primitives. It **does not provide native marimo graph validation, reactive behavior, arbitrary UI APIs or native notebook exports**. Missing helpers/data, unavailable packages, interactive APIs, disabled cells and unsupported notebook structures remain blocked. Jupyter kernels are not supported. Optional synthetic data tests are marked as mocks, with manifests, and never verify original-input behavior. Missing helper APIs are not invented.
+Each execution starts in a fresh Pyodide Web Worker. Review prepares a separate execution ZIP for each student, so a run receives only that student's files. These temporary archives stay in session memory and are excluded from downloadable reports. Python/package loading has its own 180-second startup deadline; the code's execution limit (120 seconds by default) starts when runtime loading finishes. Workers are terminated and handlers/timers released on completion, failure or timeout. Ordinary Python runs as submitted with real assertions/errors. Supported Pyodide packages are loaded from their published distribution. A limited marimo adapter executes submitted cell function bodies in returned-variable dependency order and supports basic markdown/stack display primitives. It **does not provide native marimo graph validation, reactive behavior, arbitrary UI APIs or native notebook exports**. Missing helpers/data, unavailable packages, interactive APIs, disabled cells and unsupported notebook structures remain blocked. Jupyter kernels are not supported. Optional synthetic data tests are marked as mocks, with manifests, and never verify original-input behavior. Missing helper APIs are not invented.
+
+Transient worker/startup failures can retry once automatically in a fresh worker. Execution timeouts and Python code errors do not automatically rerun. **Retry interrupted runs** retries only timeouts/runtime interruptions and retains successful runs and code-error results. It is available in the main Streamlit results and browser diagnostics. Retry history, loading/execution phase and timing are retained in JSON. Browser memory exhaustion is inconclusive. Unsupported native setup (such as subprocess package installation) and genuine Python errors remain distinct.
 
 Assignment coverage uses deterministic evidence retrieval. Each part reports candidate, partial or missing evidence; code can use different wording, copied prompts can match, and required method counts or substantive written answers need inspection. No student is automatically marked complete. Record manual completion decisions in the main Streamlit interface. Browser success only establishes the tested browser-compatible code path; this cannot guarantee every Python package, assignment or submission will run. Student code can access the network; only run submissions you are authorized to test. Browser workers have no grader backend credentials.
 
@@ -149,6 +151,12 @@ Use `--execute --mock` for an explicitly labeled smoke test; optionally add `--m
 
 ```bash
 uv run --frozen python -m unittest discover -s tests -v
+```
+
+The browser worker lifecycle tests use Node's built-in test runner:
+
+```bash
+node --test tests/worker-client.test.mjs
 ```
 
 Tests exercise archive safety/grouping, generic requirement extraction, evidence/decision separation, Python and native marimo/Jupyter success and failure, shared files, path mappings, timeouts, credential inheritance, and the Streamlit review/execution workflow.

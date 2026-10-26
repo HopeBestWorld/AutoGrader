@@ -1,3 +1,4 @@
+const {runWorkerJob,prepareWorkerRequest,splitReviewResult,canRetryInterrupted,planInterruptedRetries}=await import('./worker-client.mjs?build='+encodeURIComponent(window.APP_BUILD||window.APP_BUNDLE));
 const panel=document.getElementById('browser-runner');
 panel.innerHTML=`<h2>Check submissions — free browser execution</h2>
 <p>Upload a Canvas ZIP and assignment instructions. No AI or account is required. Supported Python code runs in a fresh browser worker. Native packages, Jupyter kernels, interactive notebook features and unknown helper APIs may be unsupported.</p>
@@ -8,13 +9,17 @@ panel.innerHTML=`<h2>Check submissions — free browser execution</h2>
 <label><input id="run-mock" type="checkbox" checked>Generate missing supported data files for mock smoke tests (original inputs unverified)</label>
 <label><input id="run-model-mock" type="checkbox" checked>Use the supported model-API test double when needed (synthetic replies, no real AI; model behavior unverified)</label>
 <label>Synthetic corpus word target <input id="run-mock-words" type="number" min="100" max="200000" value="30000"> (increase for hard-coded passage indices; does not recreate the original text)</label>
-<label>Worker time limit (includes runtime loading) <input id="run-timeout" type="number" min="15" max="600" value="120"> seconds</label>
+<label>Code execution time limit <input id="run-timeout" type="number" min="15" max="600" value="120"> seconds</label>
+<p>Python/package loading has a separate 3-minute deadline. Interrupted startup can retry once automatically.</p>
 <p>Only upload code you are authorized to test. Browser workers are isolated from the review app but code can access the network. Mock or browser success does not verify original-data/native behavior or assignment completion.</p>
-<button id="run-review">1. Extract parts and review ZIP</button> <button id="run-code" disabled>2. Run detected entrypoints</button> <button id="run-handoff" disabled>Download TA handoff ZIP</button> <button id="run-download" disabled>Download combined report</button>
+<button id="run-review">1. Extract parts and review ZIP</button> <button id="run-code" disabled>2. Run detected entrypoints</button> <button id="run-retry" disabled>Retry interrupted runs</button> <button id="run-handoff" disabled>Download TA handoff ZIP</button> <button id="run-download" disabled>Download combined report</button>
 <p>The TA handoff ZIP includes an offline readable report and per-part spreadsheets. Use the main Streamlit downloads to include completion decisions you recorded there.</p>
 <p id="run-status" role="status" aria-live="polite"></p><div id="run-results"></div>`;
-let report=null, inputs=null;
-const status=message=>document.getElementById('run-status').textContent=message;
+let report=null, inputs=null, studentArchives=null, activeReview=false, activeExecution=false, inputVersion=0;
+const status=message=>{
+ document.getElementById('run-status').textContent=message;
+ const live=document.getElementById('submission-run-progress');if(live)live.textContent=message;
+};
 function waitForReportImport(digest) {
  return new Promise(resolve=>{
   const ready=()=>document.querySelector('#root #browser-report-ready')?.dataset.resultDigest===digest;
@@ -31,15 +36,14 @@ async function encoded(file) {
  return btoa(binary);
 }
 function job(payload) {
- return new Promise((resolve,reject)=>{
-  const workerUrl=new URL('./runner-worker.js',import.meta.url);workerUrl.searchParams.set('build',window.APP_BUILD||window.APP_BUNDLE);
-  const worker=new Worker(workerUrl);
-  const seconds=Math.min(600,Math.max(15,Number(document.getElementById('run-timeout').value)||120));
-  const timer=setTimeout(()=>{worker.terminate();resolve({file:payload.entry||'',outcome:{answer:'Unknown — time limit',category:'unknown',inputs:'Not verified',reason:'Worker reached its wall-clock limit.',next_step:'Increase the time limit and retry.'},status:'BROWSER TIMEOUT — INCONCLUSIVE',log:'Worker terminated; runtime loading is included in the limit.'});},seconds*1000);
-  worker.onmessage=({data})=>{clearTimeout(timer);worker.terminate();data.ok?resolve(data.result):reject(Error(data.error));};
-  worker.onerror=error=>{clearTimeout(timer);worker.terminate();reject(Error(error.message));};
-  worker.postMessage({...inputs,...payload,bundle:window.APP_BUNDLE});
- });
+ const workerUrl=new URL('./runner-worker.js',import.meta.url);workerUrl.searchParams.set('build',window.APP_BUILD||window.APP_BUNDLE);
+ const seconds=Math.min(600,Math.max(15,Number(document.getElementById('run-timeout').value)||120));
+ const request=prepareWorkerRequest({payload,inputs,studentArchives,bundle:window.APP_BUNDLE});
+ return runWorkerJob({url:workerUrl,payload:request,executionTimeoutMs:seconds*1000,automaticRetry:payload.mode==='run',
+  onProgress:progress=>status((payload.mode==='run'?'Running '+payload.student+' / '+payload.entry:payload.mode==='review'?'Review':'Report')+' — '+progress.label+'…')});
+}
+function updateRetryButton() {
+ document.getElementById('run-retry').disabled=activeReview||activeExecution||!report?.students.some(row=>row.execution.some(result=>result.file&&canRetryInterrupted(result)));
 }
 function plainSummary(row){
  const attempts=row.execution.map(e=>e.outcome||{answer:e.status?.startsWith('NOT RUN')?'Not tested':'Unknown — runtime stopped',category:e.status?.startsWith('NOT RUN')?'not_run':'unknown',inputs:'See run details',reason:e.status||'No result',next_step:'Inspect this run’s log.'});
@@ -77,38 +81,55 @@ function render(){
   for(const result of student.execution){const details=document.createElement('details');const heading=document.createElement('summary');heading.textContent=(result.file||'(no entrypoint)')+' — technical details and traceback';details.append(heading);const pre=document.createElement('pre');pre.textContent=JSON.stringify(result,null,2);details.append(pre);section.append(details);}
   root.append(section);
  }
- report.execution_counts={ran:0,test_error:0,unknown:0,not_run:0};for(const row of report.students)report.execution_counts[row.run_summary.category]++;
+ report.execution_counts={ran:0,test_error:0,unknown:0,not_run:0};for(const row of report.students)report.execution_counts[row.run_summary.category]++;updateRetryButton();
 }
-for(const id of ['run-zip','run-instructions','run-preset'])document.getElementById(id).addEventListener('change',()=>{report=null;document.getElementById('run-code').disabled=true;document.getElementById('run-download').disabled=true;document.getElementById('run-handoff').disabled=true;status('Inputs changed. Extract and review again.');});
+for(const id of ['run-zip','run-instructions','run-preset'])document.getElementById(id).addEventListener('change',()=>{inputVersion++;report=null;studentArchives=null;updateRetryButton();document.getElementById('run-code').disabled=true;document.getElementById('run-download').disabled=true;document.getElementById('run-handoff').disabled=true;status('Inputs changed. Click Run submissions to check the current files.');});
 document.getElementById('run-review').onclick=async()=>{
  const file=document.getElementById('run-zip').files[0],instructions=document.getElementById('run-instructions').files[0];
  if(!file){status('Choose a submissions ZIP.');return;}
+ if(activeReview||activeExecution)return;
+ const version=inputVersion;activeReview=true;updateRetryButton();
  const button=document.getElementById('run-review');button.disabled=true;document.getElementById('run-code').disabled=true;
  try{
   inputs={archive:await encoded(file),instructions:await encoded(instructions),instructions_name:instructions?.name,preset:document.getElementById('run-preset').value};
   status('Loading browser Python and extracting assignment parts…');
   const result=await job({mode:'review'});
   if(!result.students)throw Error(result.log||'Review did not complete');
-  report=result;render();document.getElementById('run-code').disabled=false;document.getElementById('run-download').disabled=false;document.getElementById('run-handoff').disabled=false;
+  if(version!==inputVersion){status('Uploads changed; review the current inputs again.');return;}
+  const review=splitReviewResult(result);report=review.report;studentArchives=review.studentArchives;render();document.getElementById('run-code').disabled=false;document.getElementById('run-download').disabled=false;document.getElementById('run-handoff').disabled=false;
   status(`Reviewed ${report.students.length} student groups and ${report.assignment.requirements.length} assignment parts. Evidence is a search aid, not a completion verdict.`);
- }catch(error){status(String(error));}finally{button.disabled=false;}
+ }catch(error){status(String(error));}finally{button.disabled=false;activeReview=false;updateRetryButton();}
 };
-document.getElementById('run-code').onclick=async()=>{
+async function runCode(retryOnly=false){
+ if(!report||activeExecution||activeReview)return;
+ const currentReport=report;activeExecution=true;updateRetryButton();
  const button=document.getElementById('run-code');button.disabled=true;document.getElementById('run-review').disabled=true;
  document.getElementById('run-handoff').disabled=true;document.getElementById('run-download').disabled=true;
  try{
   const mock=document.getElementById('run-mock').checked;
   for(const row of report.students){
    if(!row.run_selected)continue;
-   row.execution=[];
+   const plan=retryOnly?planInterruptedRetries(row.execution):null;
+   const previous=plan?.previous||new Map();
+   if(!retryOnly)row.execution=[];
    if(row.unmatched){row.execution.push({file:'',status:'NOT RUN — UNKNOWN STUDENT GROUP'});continue;}
-   const entries=row.browser_entrypoints;
+   const entries=retryOnly?[...previous.keys()]:row.browser_entrypoints;
+   if(retryOnly&&!entries.length)continue;
+   if(retryOnly)row.execution=plan.retained;
    if(!entries.length)row.execution.push({file:'',status:'NOT RUN — NO UNAMBIGUOUS SUPPORTED ENTRYPOINT'});
    for(const entry of entries){
     status('Running '+row.student+' / '+entry+' in a fresh browser worker…');
-    try{row.execution.push(await job({mode:'run',student:row.student,entry,mock,model_apis:mock&&document.getElementById('run-model-mock').checked,mock_words:Math.min(200000,Math.max(100,Number(document.getElementById('run-mock-words').value)||30000))}));}
-    catch(error){row.execution.push({file:entry,status:'BROWSER RUNTIME BLOCKED',log:String(error)});}
+    try{
+     const result=await job({mode:'run',student:row.student,entry,mock,model_apis:mock&&document.getElementById('run-model-mock').checked,mock_words:Math.min(200000,Math.max(100,Number(document.getElementById('run-mock-words').value)||30000))});
+     if(report!==currentReport){status('Uploads changed; stopped the previous batch.');return;}
+     if(previous.has(entry)){
+      const history=previous.get(entry).flatMap(prior=>{const {infrastructure_history,...record}=prior;return [...(infrastructure_history||[]),record];});
+      result.infrastructure_history=[...history,...(result.infrastructure_history||[])].slice(-5);
+     }
+     row.execution.push(result);
+    }catch(error){row.execution.push({file:entry,status:'BROWSER RUNTIME BLOCKED',retryable:true,log:error?.stack||String(error)});}
     render();
+    await new Promise(resolve=>setTimeout(resolve,250)); // Allow worker cleanup and UI repaint.
    }
   }
   render();
@@ -124,8 +145,10 @@ document.getElementById('run-code').onclick=async()=>{
    }
   }
   status(`Browser checks completed. ${report.execution_counts.ran} ran, ${report.execution_counts.test_error} had a test error, ${report.execution_counts.unknown} remain undetermined, ${report.execution_counts.not_run} were not tested. `+(imported?'The Streamlit table and TA downloads are updated.':'Use the downloads in browser diagnostics; the Streamlit import has not been confirmed.'));
- }finally{button.disabled=false;document.getElementById('run-review').disabled=false;document.getElementById('run-handoff').disabled=false;document.getElementById('run-download').disabled=false;}
-};
+ }finally{activeExecution=false;button.disabled=false;document.getElementById('run-review').disabled=false;document.getElementById('run-handoff').disabled=!report;document.getElementById('run-download').disabled=!report;updateRetryButton();}
+}
+document.getElementById('run-code').onclick=()=>runCode(false);
+document.getElementById('run-retry').onclick=()=>runCode(true);
 document.getElementById('run-handoff').onclick=async()=>{
  const button=document.getElementById('run-handoff');button.disabled=true;
  try{
@@ -171,7 +194,7 @@ document.addEventListener('change',event=>{
  const label=uploader.textContent;
  if(label.includes('Canvas submissions ZIP')) {
   mirrorUpload('run-zip',input.files);copyReviewChecklist();
-  status('Your ZIP and available checklist were copied from the Streamlit review panel. Click “1. Extract parts and review ZIP”, then “2. Run detected entrypoints” above.');
+  status('ZIP ready. Click Run submissions to begin.');
  } else if(label.includes('Assignment PDF, text checklist')) {
   mirrorUpload('run-instructions',input.files);
  }
@@ -179,10 +202,28 @@ document.addEventListener('change',event=>{
 
 document.addEventListener('click',async event=>{
  const button=event.target.closest('button');
- if(!button||!button.closest('#root')||button.textContent.trim()!=='Run submissions')return;
+ if(!button||!button.closest('#root'))return;
+ const label=button.textContent.trim();
+ if(!['Run submissions','Retry interrupted runs'].includes(label))return;
+ if(activeReview||activeExecution){event.preventDefault();event.stopImmediatePropagation();return;}
+ if(label==='Retry interrupted runs') {
+  if(!report||!studentArchives) {
+   let previous=null;
+   for(const input of document.querySelectorAll('#root input[type=file]')) {
+    if(input.closest('[data-testid="stFileUploader"]')?.textContent.includes('Browser execution results (automatic)')&&input.files[0]) {
+     try{previous=JSON.parse(await input.files[0].text());}catch(error){status('Cannot read prior browser results.');return;}
+    }
+   }
+   if(!previous){status('Run submissions first to prepare the execution files.');return;}
+   copyReviewChecklist();await document.getElementById('run-review').onclick();
+   if(!report||report.archive_sha256!==previous.archive_sha256||report.assignment_digest!==previous.assignment_digest){status('Previous results belong to different inputs. Run the current submissions again.');return;}
+   const prior=new Map(previous.students.map(row=>[row.student,row]));
+   for(const row of report.students)row.execution=prior.get(row.student)?.execution||[];
+  }
+  await runCode(true);return;
+ }
  copyReviewChecklist();document.getElementById('run-mock').checked=true;
  const details=document.getElementById('browser-runner-details');if(details)details.open=false;
- if(document.getElementById('run-review').disabled)return;
  await document.getElementById('run-review').onclick();
- if(report&&!document.getElementById('run-code').disabled)await document.getElementById('run-code').onclick();
+ if(report&&!document.getElementById('run-code').disabled)await runCode(false);
 },true);

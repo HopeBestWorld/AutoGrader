@@ -27,6 +27,7 @@ class PagesTests(unittest.TestCase):
             self.assertIn(bundle.name,html)
             self.assertNotIn('__APP_BUNDLE__',html)
             self.assertIn('@stlite/browser@0.89.1',html)
+            self.assertTrue((output/'worker-client.mjs').exists())
             self.assertFalse(any('submission' in p for p in app['files']))
             before=bundle.read_bytes()
             module.build(output)
@@ -43,6 +44,7 @@ class PagesTests(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state['report']['rows'][0]['execution'][0]['status'],'BROWSER TIMEOUT — INCONCLUSIVE')
         self.assertEqual(at.session_state['report']['rows'][0]['execution'][0]['file'],'')
+        self.assertFalse(any(b.label=='Retry interrupted runs' for b in at.button))
 
     def test_native_runner_explicitly_refuses_browser_execution(self):
         with patch('grader_core.native_execution_available',return_value=False):
