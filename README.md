@@ -2,17 +2,32 @@
 
 Review whether Python, marimo, or Jupyter submissions **run** and whether **every assignment part is answered**, without scoring the accuracy of the work. The main app is assignment independent. Assignment 7 (Sentiment and Plot) and Assignment 8 (Reading Difficulty) have supplied checklists based on the assignment PDFs.
 
+**[Open the free browser app → https://hopebestworld.github.io/AutoGrader/](https://hopebestworld.github.io/AutoGrader/)**
+
+The GitHub Pages app runs Streamlit and supported Python submissions in your browser. No local installation, account, API key, paid backend, or AI service is required.
+
+## Quick start: check submissions in the browser
+
+1. [Open the app](https://hopebestworld.github.io/AutoGrader/) in a current desktop browser. Allow time for the initial Python runtime download.
+2. Select the Assignment 7 or 8 checklist, or upload your assignment instructions as PDF, text, Markdown, or checklist JSON. Review the extracted requirements under **Review or edit the requirement checklist** before using them.
+3. Upload the **Canvas submissions ZIP**, including the students' executable source files. Saved outputs alone cannot be executed.
+4. Click **Run browser checks (with mocks)**. The app runs detected entrypoints in fresh browser workers, generates supported missing inputs, and returns results to the Streamlit table automatically. Expand the browser diagnostics panel below the app to see progress, select entrypoints, or adjust mock settings and the time limit.
+5. Read **Runs?**, **Test inputs**, **Reason**, and **Next step** for each student. **Yes — with mocks** means the tested code path finished with the recorded substitutes. **Unknown** means the available inputs or browser environment prevented a determination. See [Understanding run outcomes](#understanding-run-outcomes) for the other result categories.
+6. Inspect the evidence for each assignment part and record completion decisions separately. Download the **plain-language results CSV** and the **report with review decisions and execution logs** before closing or refreshing the page.
+
+Mock mode can generate supported data files and supply defined helper/API test doubles. Every substitution is recorded; original submissions and their assertions remain intact. A successful mock run verifies the tested path with those substitutes. Original data/helper/model behavior and assignment completion still need separate review. Unknown helper APIs or incompatible code may require a compatible fixture or the native edition.
+
 ## Free GitHub Pages deployment
 
 This repository includes a **Stlite browser edition**, using the same approach as OpenFLASH. GitHub Pages hosts static files, while Python/Streamlit run in the visitor's browser. No account, organization, paid backend, or local Python installation is required to use the published site.
 
 1. In this GitHub repository, open **Settings → Pages** and choose **GitHub Actions** as the build source. If you do not see those settings, a repository administrator must enable them. GitHub Pages is free for public repositories on GitHub Free; private repository Pages availability depends on the account plan. The site itself should not be treated as private storage.
 2. The **Deploy browser app to GitHub Pages** workflow runs on pushes to `main`. If enabling Pages after the push, open **Actions**, select that workflow, and click **Run workflow**. It builds from an explicit allowlist of app sources and assignment checklists; it never bundles uploaded submissions, reports, repository history, secrets or the Python environment.
-3. Open the deployment URL shown by the successful workflow/Pages settings. Subsequent pushes to `main` update the site automatically. For this repository, the standard project-site URL is `https://hopebestworld.github.io/AutoGrader/` (it is live only after a successful Pages deployment).
+3. Open [https://hopebestworld.github.io/AutoGrader/](https://hopebestworld.github.io/AutoGrader/) after a successful deployment. Subsequent pushes to `main` update the site automatically. Deployment progress appears in the repository's [Actions tab](https://github.com/HopeBestWorld/AutoGrader/actions/workflows/pages.yml).
 
 **Browser capabilities:** assignment PDF/text/JSON checklists, Canvas ZIP grouping, syntax/code/prose inspection, evidence and completion decisions, provided-file prerequisite inventory, original-file inspection/downloads, and exported JSON reports. ZIP files are handled in the browser's virtual filesystem; the app does not upload them to an autograding backend. The site downloads Stlite/Python/packages from external CDNs. Prerequisite package availability describes the browser runtime, not a separate server.
 
-**Native execution limitation:** the Streamlit review panel does not provide native Python, marimo/Jupyter or native mock execution. The separate browser execution panel now runs a supported Python subset in isolated browser workers. Those rely on native processes and packages that browser Python cannot supply. Native execution controls are disabled and reports record the browser's capabilities; unavailable execution is not recorded as a student failure. Use the native edition below for actual runs. A backend would be needed to provide the full native execution workflow through a shared hosted site.
+**Execution options:** the Pages app uses a browser worker to execute supported Python code, including a limited marimo adapter and mock inputs. Its Streamlit button starts that same runner and imports the results. Full native marimo/Jupyter execution and packages requiring native processes need the [native Streamlit edition](#start-the-native-streamlit-edition); its separate native execution controls are disabled on Pages. Browser limitations are reported as undetermined outcomes rather than student failures.
 
 ### Free browser execution and no-AI assignment checks
 
@@ -24,7 +39,7 @@ The diagnostics panel accepts a submissions ZIP and assignment PDF/text/JSON. Cl
 
 Each execution starts in a fresh Pyodide Web Worker, which is terminated on timeout. The timeout includes runtime/package loading. Ordinary Python runs as submitted with real assertions/errors. Supported Pyodide packages are loaded from their published distribution. A limited marimo adapter executes submitted cell function bodies in returned-variable dependency order and supports basic markdown/stack display primitives. It **does not provide native marimo graph validation, reactive behavior, arbitrary UI APIs or native notebook exports**. Missing helpers/data, unavailable packages, interactive APIs, disabled cells and unsupported notebook structures remain blocked. Jupyter kernels are not supported. Optional synthetic data tests are marked as mocks, with manifests, and never verify original-input behavior. Missing helper APIs are not invented.
 
-Assignment coverage is deterministic evidence retrieval, not an AI or semantic completeness verdict. Each part reports candidate, partial or missing evidence; code can use different wording, copied prompts can match, and required method counts or substantive written answers need inspection. No student is automatically marked complete. The Streamlit panel remains available below for manual completion decisions. Browser success only establishes the tested browser-compatible code path; this cannot guarantee every Python package, assignment or submission will run. Student code can access the network; only run submissions you are authorized to test. Browser workers have no grader backend credentials.
+Assignment coverage uses deterministic evidence retrieval. Each part reports candidate, partial or missing evidence; code can use different wording, copied prompts can match, and required method counts or substantive written answers need inspection. No student is automatically marked complete. Record manual completion decisions in the main Streamlit interface. Browser success only establishes the tested browser-compatible code path; this cannot guarantee every Python package, assignment or submission will run. Student code can access the network; only run submissions you are authorized to test. Browser workers have no grader backend credentials.
 
 Use a current desktop browser and allow time for the initial runtime download. Expanded archives are limited to 128 MiB in the browser edition. Reports and uploaded files are session memory; download reports before closing/reloading. The free Pages deployment has no persistent student-data storage, login system or paid services.
 
@@ -35,7 +50,9 @@ python scripts/build_pages.py
 # Generated files are in dist/. Publish that directory with GitHub Pages.
 ```
 
-## Start
+## Start the native Streamlit edition
+
+Use this edition for native Python, marimo, and Jupyter execution, shared course-files ZIPs, student-specific resources, and custom mock-fixtures ZIPs. These resource uploads are used by the native runner; the Pages worker currently uses files in the submissions ZIP and its supported automatic mocks. Both editions use the same review interface and keep execution outcomes separate from completion decisions.
 
 Use Python 3.11+ and `uv`:
 
@@ -76,7 +93,7 @@ If the grader does not possess those originals, **the real run cannot yet be ver
 
 ### Mock smoke tests when original inputs are unavailable
 
-Select **Execution mode → Mock inputs — smoke test only**, enable execution, and run selected entrypoints. This runs the actual submitted program or native notebook, with assertions and errors still active. It is useful for checking whether a code path can execute with substitute inputs; it cannot prove the original data/helper code would work or that all required analysis ran.
+In the native edition, select **Execution mode → Mock inputs — smoke test only**, enable execution, and run selected entrypoints. This runs the actual submitted program or native notebook, with assertions and errors still active. On Pages, use **Run browser checks (with mocks)** for the supported browser execution path. Both modes check whether a code path can execute with substitute inputs; they cannot prove the original data/helper code would work or that all required analysis ran.
 
 - Missing literal text, CSV/TSV, JSON/JSONL/NDJSON and corresponding gzip inputs can be generated automatically. Text defaults to an approximately 18,000-word deterministic synthetic corpus (configurable 100–200,000); tables use synthetic rows with default fields and field names inferred from code. `load_lexicon` / `load_emolex` calls can receive small synthetic sentiment lexicons. These are smoke-test guesses, not real schemas or real research data. Generation is bounded to 64 files / 16 MiB.
 - If a particular schema or helper interface is required, upload a **mock-fixtures ZIP** with correctly shaped synthetic data or compatible Python test doubles at the paths expected by the submission. For example, a missing `course_helper.py` can be supplied as a deliberately simplified mock of its documented API. No arbitrary missing helper is automatically replaced with a permissive stub: unknown return types and no-op implementations could hide student errors. The test double's code and its assumptions should be reviewed.
@@ -154,6 +171,7 @@ The main table now has **Runs?**, **Test inputs**, **Reason**, and **Next step**
 
 - **Yes — with mocks** means the entrypoint finished on the documented synthetic inputs/helper doubles and tested UI defaults. It does not verify the original files, original helpers, native marimo behavior, accuracy, or completeness.
 - **Yes — with supplied inputs** means this tested input/runtime path finished.
+- **Yes — with mock model API** means the caller finished with synthetic model replies from the supported test double. No real model or AI inference ran.
 - **Unknown** means a missing resource, browser limitation, time limit or incompatible test inputs prevented a determination. It must not be counted as failed student code.
 - **Error — test stopped** means an error stopped the particular tested run. With mocks, matching original inputs may behave differently.
 - **Not tested** means no attempt occurred, for example because executable source was missing. Saved output snapshots cannot replace source code.
