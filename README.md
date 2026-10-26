@@ -190,6 +190,31 @@ Several recorded attempts are summarized conservatively: one successful attempt 
 
 ## Downloading results and sharing with another TA
 
+### Finish checks that the browser cannot determine
+
+Under **How to check the remaining submissions**, the app lists the source file, cell/line, unresolved declared variables and native-only calls. These are static hints. Generated marimo signatures can contain stale or conditional arguments: the updated browser adapter leaves absent names unbound and reports an error only if the tested cell body reads them. No placeholder values are injected. If a required name is actually read before it is defined, obtain a corrected submission with the right definition/export and rerun the new ZIP; adding data files does not create Python variables.
+
+For operating-system processes, package-install commands or system SSL configuration, use **Free native Python follow-up with Google Colab**:
+
+1. Download **native follow-up notebook**, open [Google Colab](https://colab.research.google.com/), and choose **File → Upload notebook**.
+2. Run **Install checker**, then **Upload files**. Upload the same original Canvas submissions ZIP. Optional instructor course-files and student-resource ZIPs can be uploaded together.
+3. Review the student keys and settings. Enable **EXECUTE_STUDENT_CODE**, then run **Check remaining submissions**. Only unresolved entrypoints are selected by default. Native Python runs the original code, including subprocess calls and the real `truststore` package. Supported missing inputs/course helpers can use labeled mocks; assertions, installation failures and undefined-name errors remain active.
+4. Run **Download results** for a fresh TA ZIP. Extract `submission-report.json`, upload it under **Import native follow-up results** in the Pages app, then click **Apply native follow-up results**. The ZIP/checklist hashes must match. Current completion decisions are preserved. Earlier attempts stay in `execution_history`; the table summarizes the new active results. A subsequent browser run supplies new active browser results.
+
+This is an optional free CPU runtime, requires Google sign-in, and is subject to Colab's free availability limits. No GPU, paid AI or hosted grader server is needed. The notebook includes your current report and an allowlisted snapshot of checker source; keep it with the grading team. The Pages app sends nothing to Google automatically. Use a fresh runtime without Drive mounts or secrets: student code runs with runtime filesystem/network permissions, not inside a security sandbox. Original uploaded files are sent to Colab only when you choose them in its upload dialog.
+
+Native execution may reveal further data, helper or code problems after a browser blocker is removed; a native follow-up does not guarantee success. Synthetic input/helper mismatches stay inconclusive. Each test applies only to its recorded inputs/runtime and never marks assignment parts complete.
+
+With an existing native checkout, the same follow-up can run from the CLI:
+
+```bash
+uv run --frozen python native_followup.py --report submission-report.json --submissions submissions.zip --output native-results --execute
+```
+
+Omit `--execute` to print the follow-up plan without running code. Use `--student` repeatedly to choose unresolved students, `--shared` / `--resources` for course or personal ZIPs, and `--provided-inputs` to disable automatic mocks. The original archive checksum is checked before any execution.
+
+### Share the TA handoff
+
 Choose **Download TA handoff ZIP** in the main Streamlit interface. It includes:
 
 | File | Use |

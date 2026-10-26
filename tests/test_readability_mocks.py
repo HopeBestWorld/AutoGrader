@@ -6,6 +6,17 @@ import unittest
 from browser_execution import run_browser_entry
 
 class ReadabilityMockTests(unittest.TestCase):
+    def test_token_whitespace_comes_from_actual_input_text(self):
+        result=self.run_code('''import readability_tools as rt
+text='Hello,  world!\\nNext\\tword.  '
+doc=rt.load_parser()(text)
+assert ''.join(t.text_with_ws for t in doc)==text
+assert doc[1].whitespace_=='  '
+assert doc[3].whitespace_=='\\n'
+assert doc[-1].whitespace_=='  '
+''')
+        self.assertIn('RUN SUCCEEDED',result['status'],result['log'])
+
     def run_code(self, source, model_apis=False, files=None, mock=True):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'main.py').write_text(source)
@@ -82,6 +93,11 @@ assert measure.doc_value(doc)>0
         self.assertFalse(any(m['file']=='readability_tools.py' for m in result['mocks']['manifest']))
         result=self.run_code('import readability_tools',mock=False)
         self.assertIn('BLOCKED',result['status'])
+        self.assertFalse(result['mock_used'])
+        result=self.run_code("from readability_tools import clean_paragraphs\nassert clean_paragraphs(open('book.txt').read(),start_at='Actual opening')==['Actual opening remains.']",files={
+            'readability_tools.py':"def clean_paragraphs(text,start_at):return [text[text.index(start_at):]]",
+            'book.txt':'Preface. Actual opening remains.'})
+        self.assertIn('RUN SUCCEEDED',result['status'],result['log'])
         self.assertFalse(result['mock_used'])
 
     def test_spacy_fixture_restores_host_module(self):

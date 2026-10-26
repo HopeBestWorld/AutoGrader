@@ -332,6 +332,7 @@ def evidence_for(requirement, blocks):
 
 
 def review_folder(folder, profile, student='submission'):
+    from execution_diagnostics import inspect_folder_sources
     audit = inspect_folder(folder)
     requirements = []
     for req in profile['requirements']:
@@ -346,6 +347,7 @@ def review_folder(folder, profile, student='submission'):
         entries = [s['file'] for s in audit['scripts'] if Path(s['file']).name != '__init__.py']
     return {'student': student, 'profile_digest': profile_digest(profile), 'requirements': requirements,
             'scripts': audit['scripts'], 'entrypoints': entries, 'attachments': audit['attachments'],
+            'source_diagnostics':inspect_folder_sources(folder),
             'issues': audit['issues'], 'word_counts': audit['word_counts'], 'files': sorted(str(p.relative_to(folder)) for p in Path(folder).rglob('*') if p.is_file()), 'execution': [],
             'unmatched': student == 'UNMATCHED_REVIEW'}
 
@@ -445,7 +447,7 @@ def classify_execution(returncode, log, timed_out=False):
         return 'TIMEOUT — INCONCLUSIVE'
     if returncode == 0:
         return 'RAN SUCCESSFULLY — REVIEW OUTPUTS'
-    if any(s in log for s in ('ModuleNotFoundError', 'ImportError', '[E050]', 'Can\'t find model', 'Resource\x1b[0m', 'LookupError', 'CERTIFICATE_VERIFY_FAILED', 'ConnectionError', 'Connection refused', 'Network is unreachable')):
+    if any(s in log for s in ('ModuleNotFoundError', 'ImportError', 'No module named pip', '[E050]', 'Can\'t find model', 'Resource\x1b[0m', 'LookupError', 'CERTIFICATE_VERIFY_FAILED', 'ConnectionError', 'Connection refused', 'Network is unreachable')):
         return 'BLOCKED — DEPENDENCY / ENVIRONMENT'
     if any(s in log for s in ('FileNotFoundError', 'No such file or directory')):
         return 'BLOCKED — MISSING FILE / PATH'

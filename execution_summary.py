@@ -27,8 +27,13 @@ def summarize_attempt(result):
     inputs=('Supplied files + mocks' if inventory['supplied_files'] else 'Mock data / helpers') if mock else 'Supplied inputs'
     matches=re.findall(r'(?m)^([\w.]+(?:Error|Exception|UnsupportedBrowserFeature)):\s*([^\n]*)',log)
     error,detail=matches[-1] if matches else (str(result.get('exception_type') or ''),'')
+    native_errors=[message.strip() for message in re.findall(r'(?m)^MarimoExceptionRaisedError:\s*([^\n]+)',log) if not message.strip().startswith('An ancestor')]
+    concrete=[item for item in matches if not item[0].endswith('MarimoExceptionRaisedError')]
+    if concrete:error,detail=concrete[-1]
+    elif native_errors:error,detail='Notebook cell error',native_errors[0]
     reason=(error.rsplit('.',1)[-1]+': '+detail).strip(': ')[:350] if error else ''
-    out={'answer':'Unknown','category':'unknown','inputs':inputs,'reason':reason,'next_step':'Inspect the execution log.','original_inputs_verified':False,
+    runtime=result.get('runtime') or ('Browser Python' if 'BROWSER' in status or 'Browser' in str(result.get('mode','')) else 'Native Python' if result.get('mode') in ('Python script','Native marimo HTML export','Jupyter execution') else 'Not recorded')
+    out={'answer':'Unknown','category':'unknown','inputs':inputs,'runtime':runtime,'reason':reason,'next_step':'Inspect the execution log.','original_inputs_verified':False,
          'uses_mocks':mock, **inventory}
     if 'RUN SUCCEEDED' in status or 'RAN SUCCESSFULLY' in status or 'SMOKE TEST PASSED' in status:
         out.update(answer='Yes — with mocks' if mock else 'Yes — with supplied inputs',category='ran',reason='Entrypoint finished without an unhandled error.',next_step='No execution fix needed for this test. Review assignment coverage separately.')
@@ -45,6 +50,10 @@ def summarize_attempt(result):
             out.update(reason='No single runnable entrypoint was selected or detected.',next_step='Supply executable Python source, or select the main script. Output snapshots alone cannot be executed.')
         elif 'UNKNOWN STUDENT' in status:
             out.update(reason='Files could not be assigned to a student.',next_step='Check Canvas file names before selecting an entrypoint.')
+    elif 'Notebook dependencies not defined or exported:' in log:
+        names=log.rsplit('Notebook dependencies not defined or exported:',1)[-1].splitlines()[0].strip()
+        out.update(answer='Unknown — notebook dependency check',category='unknown',reason='The earlier adapter could not resolve declared cell arguments: '+names,
+                   next_step='Run the updated browser checker or native follow-up to test whether the cell body actually reads these names. Inspect the recovery checklist; supplying mock files alone does not define notebook variables.')
     elif result.get('failure_kind')=='browser_startup_timeout':
         out.update(answer='Unknown — loading time limit',reason='Python or package loading reached its startup deadline; submitted code had not started.',next_step='Retry interrupted runs. Check browser memory and connectivity if loading keeps failing.')
     elif result.get('failure_kind')=='browser_execution_timeout':
@@ -57,7 +66,7 @@ def summarize_attempt(result):
         phase=result.get('runtime_phase') or (result.get('browser_runtime') or {}).get('phase') or 'unknown phase'
         out.update(answer='Unknown — browser runtime stopped',reason=reason or f'The browser worker stopped during {phase}. '+log[:220],next_step='Retry interrupted runs. Inspect the retained phase/error details if the browser keeps stopping.')
     elif 'TIMEOUT' in status:
-        out.update(answer='Unknown — time limit',reason='The worker reached its time limit; runtime loading is included.',next_step='Increase the time limit, then retry. No pass or failure of original code is established.')
+        out.update(answer='Unknown — time limit',reason='The native process reached its time limit.' if runtime.lower().startswith('native') else 'The worker reached its time limit; runtime loading is included.',next_step='Increase the time limit, then retry. No pass or failure of original code is established.')
     elif mock and any(m.get('format')=='synthetic prose' for m in manifests) and any(s in detail for s in ('substring not found','start and end markers','No chapter headings matched','phrase not found:')):
         out.update(answer='Unknown — mock text incompatible',reason='The code requires book-specific phrases, markers or chapter headings absent from the synthetic text.',next_step='Supply the matching original text. A larger synthetic corpus will not reproduce book-specific content.')
     elif 'INPUT / CODE MISMATCH' in status or result.get('failure_kind')=='mock_input_or_code_mismatch':
@@ -65,7 +74,9 @@ def summarize_attempt(result):
     elif result.get('failure_kind')=='unsupported_mock_api':
         out.update(answer='Unknown — mock API unsupported',reason=reason or 'This call exceeds the reviewed fixture contract.',next_step=result.get('action') or 'Supply the original helper/model or a compatible fixture.')
     elif 'BLOCKED' in status or 'UNSUPPORTED' in status or 'UNAVAILABLE' in status:
-        if status=='BROWSER RUNTIME BLOCKED':
+        if runtime.lower().startswith('native'):
+            out.update(answer='Unknown — native environment blocked',reason=reason or 'The native runtime could not provide a required package, model, file or network resource.',next_step='Inspect the native log. Install the verified dependency/model or supply the matching input in the optional ZIPs, then rerun in native Python. Browser retry settings do not resolve native environment failures.')
+        elif status=='BROWSER RUNTIME BLOCKED':
             out.update(answer='Unknown — browser runtime stopped',reason=log[:350] if log.strip() and log.strip()!='Error' else 'The browser worker stopped without detailed diagnostics; this does not establish a student-code failure.',next_step='Retry interrupted runs with the updated checker to record the loading/execution phase.')
         elif 'ModuleNotFoundError' in log or 'ImportError' in log:
             out.update(answer='Unknown — dependency missing',reason=reason or 'A dependency is missing or unavailable in browser Python.',next_step='Supply the real helper or use a browser-compatible package. If it requires a native runtime, this browser test cannot determine the result.')
@@ -94,6 +105,7 @@ def summarize_student(row):
         chosen['answer']='Yes — includes mock runs' if mock else 'Yes — with supplied inputs'
         chosen['reason']=f'All {len(attempts)} recorded attempts finished. Results apply only to their tested inputs/runtime.'
     chosen['inputs']='; '.join(dict.fromkeys(a['inputs'] for a in attempts))
+    chosen['runtime']='; '.join(dict.fromkeys(a['runtime'] for a in attempts))
     chosen['uses_mocks']=any(a['uses_mocks'] for a in attempts)
     for key in ('supplied_files','mock_files'):
         chosen[key]=list(dict.fromkeys(value for a in attempts for value in a[key]))

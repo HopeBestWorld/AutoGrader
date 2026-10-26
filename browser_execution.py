@@ -2,6 +2,7 @@
 import ast
 import __future__
 import contextlib
+import copy
 import inspect
 import io
 import json
@@ -143,7 +144,7 @@ def run_source(source, filename, model_apis=False):
         return {'mode':'Python script in browser', 'cells_executed':None}
     # Use the real submitted function bodies and returned dependency names. This
     # adapter deliberately does not claim native marimo graph equivalence.
-    cells, exports = [], {}
+    cells, exports, cell_nodes = [], {}, []
     cell_future_flags = {}
     top = []
     for node in tree.body:
@@ -187,6 +188,7 @@ def run_source(source, filename, model_apis=False):
                     raise ValueError(f'Duplicate cell export: {name}')
                 exports[name]=node.name
             cells.append(names)
+            cell_nodes.append(node)
     module=DisplayMarimo(model_apis)
     previous=sys.modules.get('marimo')
     sys.modules['marimo']=module
@@ -206,7 +208,32 @@ def run_source(source, filename, model_apis=False):
         apps=[a for a in namespace.values() if isinstance(a,CellApp)]
         if len(apps)!=1 or len(apps[0].cells)!=len(cells):
             raise UnsupportedBrowserFeature('Notebook structure is not supported by the browser cell adapter')
-        pending=list(zip(apps[0].cells,cells)); values={k:v for k,v in namespace.items() if not k.startswith('__')}; executed=0
+        values={k:v for k,v in namespace.items() if not k.startswith('__')}
+        registered=[]; deferred_dependencies=[]
+        global_flags=0
+        for statement in top:
+            if isinstance(statement,ast.ImportFrom) and statement.module=='__future__':
+                for alias in statement.names:global_flags|=getattr(__future__,alias.name).compiler_flag
+        for (fn,options),node in zip(apps[0].cells,cell_nodes):
+            missing={name for name,p in inspect.signature(fn).parameters.items()
+                     if p.default is p.empty and p.kind in (p.POSITIONAL_ONLY,p.POSITIONAL_OR_KEYWORD,p.KEYWORD_ONLY)
+                     and name not in values and name not in exports}
+            if missing:
+                # Generated signatures can retain unused/conditional names. Native
+                # marimo evaluates the cell body; an absent name fails only when
+                # read. Leave these names unbound globals, never placeholder data.
+                body=copy.deepcopy(node);body.decorator_list=[]
+                body.args.posonlyargs=[arg for arg in body.args.posonlyargs if arg.arg not in missing]
+                body.args.args=[arg for arg in body.args.args if arg.arg not in missing]
+                kept=[(arg,default) for arg,default in zip(body.args.kwonlyargs,body.args.kw_defaults) if arg.arg not in missing]
+                body.args.kwonlyargs=[arg for arg,_ in kept];body.args.kw_defaults=[default for _,default in kept]
+                local={}
+                exec(compile(ast.Module(body=[body],type_ignores=[]),filename,'exec',flags=global_flags|cell_future_flags.get(id(node),0),dont_inherit=True),namespace,local)
+                fn=local[body.name]
+                deferred_dependencies.append({'cell_line':node.lineno,'names':sorted(missing),
+                    'scope':'Unbound declared names are resolved only if read in the actual cell body. No values were supplied.'})
+            registered.append((fn,options))
+        pending=list(zip(registered,cells)); executed=0
         while pending:
             progressed=False
             for item in pending[:]:
@@ -232,6 +259,7 @@ def run_source(source, filename, model_apis=False):
                 if unknown:raise NameError('Notebook dependencies not defined or exported: '+', '.join(unknown))
                 raise ValueError('Unresolved or cyclic cell dependencies: '+', '.join(str(inspect.signature(i[0][0])) for i in pending))
         return {'mode':'Browser marimo cell adapter (not native export)', 'cells_executed':executed, 'widget_defaults_tested':module.ui.assumptions,
+                'deferred_declared_dependencies':deferred_dependencies,
                 'adapter_assumptions':['Cell-level future annotations were compiled with the cell annotation flag.'] if cell_future_flags else []}
     finally:
         if previous is None: sys.modules.pop('marimo',None)

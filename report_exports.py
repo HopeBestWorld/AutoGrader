@@ -97,7 +97,7 @@ def overview_rows(report):
         run = summarize_student(student)
         row = {'Assignment': report.get('assignment', {}).get('title', 'Assignment'),
                'Exported at (UTC)': report.get('generated_at', 'Not recorded'),
-               'Student': student['student'], 'Runs?': run['answer'], 'Test inputs': run['inputs'],
+               'Student': student['student'], 'Runs?': run['answer'], 'Execution runtime':run['runtime'], 'Test inputs': run['inputs'],
                'Supplied files referenced': '; '.join(run['supplied_files']) or 'None matched',
                'Mocks substituted': '; '.join(run['mock_files']) or 'None',
                'Run reason': run['reason'], 'Run next step': run['next_step'], 'Completion': summary['status'],
@@ -126,7 +126,7 @@ def checklist_rows(report):
                 'Student': student['student'], 'Runs?': run['answer'], 'Test inputs': run['inputs'],
                 'Supplied files referenced': '; '.join(run['supplied_files']) or 'None matched',
                 'Mocks substituted': '; '.join(run['mock_files']) or 'None',
-                'Part ID': summary['id'], 'Assignment part': summary['title'],
+                'Execution runtime':run['runtime'],'Part ID': summary['id'], 'Assignment part': summary['title'],
                 'Status': summary['status'], 'Reviewer decision': summary['review_decision'],
                 'Automatic evidence': summary['automatic_evidence'], 'What to check': summary['next_step'],
                 'Missing answer types': '; '.join(summary['missing_evidence_types']),
@@ -232,7 +232,14 @@ def html_report(report):
                  'runissue': run['category'] != 'ran', 'complete': summary['status'] == 'Complete (reviewed)'}
         attrs = ' '.join(f'data-{key}="{"yes" if value else "no"}"' for key, value in flags.items())
         chunks.append(f'<section class="student" id="student-{index}" data-name="{h(row["student"].lower())}" {attrs}><h3>{h(row["student"])}</h3><p><strong>Runs? {h(run["answer"])}</strong><br>Test inputs: {h(run["inputs"])}<br>{h(run["reason"])}<br>Run next step: {h(run["next_step"])}</p><p><strong>Completion: {h(summary["status"])}</strong></p>')
-        chunks.append(f'<p><strong>Supplied files referenced:</strong> {h("; ".join(run["supplied_files"]) or "None matched by the input inventory")}<br><strong>Mocks substituted:</strong> {h("; ".join(run["mock_files"]) or "None")}</p><p class="muted">Matched references describe files available to the test; they do not prove every file was read. Supplied documents can be used together with mock helpers or lexicons.</p>')
+        chunks.append(f'<p><strong>Execution runtime:</strong> {h(run["runtime"])}<br><strong>Supplied files referenced:</strong> {h("; ".join(run["supplied_files"]) or "None matched by the input inventory")}<br><strong>Mocks substituted:</strong> {h("; ".join(run["mock_files"]) or "None")}</p><p class="muted">Matched references describe files available to the test; they do not prove every file was read. Supplied documents can be used together with mock helpers or lexicons.</p>')
+        from execution_diagnostics import recovery_rows
+        recovery=recovery_rows({'students':[row]})
+        if recovery:
+            chunks.append('<details class="part"><summary>Execution recovery checklist</summary><p>Source diagnostics are static hints; check the actual runtime result before deciding whether a definition is required.</p><ul>')
+            for issue in recovery:
+                chunks.append(f'<li><strong>{h(issue["File"])} · line {h(issue["Line"] or "unknown")}: {h(issue["Needs attention"])}</strong><br>{h(issue["Next step"])}</li>')
+            chunks.append('</ul></details>')
         if row.get('unmatched'):
             chunks.append('<p class="note">Student identity was not matched. Resolve these files before assigning results to a student.</p>')
         if summary['attention']:
@@ -267,6 +274,11 @@ def html_report(report):
                 if len(log) > 20000:
                     chunks.append('<p>Last 20,000 characters shown; see submission-report.json for the retained log.</p>')
             chunks.append('</details>')
+        if row.get('execution_history'):
+            chunks.append('<details class="part"><summary>Earlier execution attempts (retained history)</summary><p>These attempts are retained for comparison. The class overview summarizes the current active results.</p>')
+            for previous in row['execution_history']:
+                chunks.append(f'<h4>{h(previous.get("file") or "(no entrypoint)")}</h4><p>{h(previous.get("status", ""))}</p><pre>{h(str(previous.get("log", ""))[-20000:])}</pre>')
+            chunks.append('</details>')
         chunks.append('<p class="back"><a href="#top">Back to class overview</a></p></section>')
     chunks.append(f'</main><script>{FILTER_SCRIPT}</script></body></html>')
     return ''.join(chunks).encode('utf-8')
@@ -274,6 +286,8 @@ def html_report(report):
 
 def handoff_files(report):
     report = prepare_report(report)
+    from execution_diagnostics import recovery_rows
+    recovery=recovery_rows(report)
     readme = f'''TA HANDOFF — {report.get('assignment', {}).get('title', 'Assignment')}
 Exported: {report['generated_at']}
 
@@ -281,6 +295,7 @@ Exported: {report['generated_at']}
 2. Check flagged gaps first, then confirm all parts awaiting review. Criteria, candidate excerpts, file/line locations and reviewer notes are included.
 3. For spreadsheets, use student-overview.csv (one row per student, one column per part) or part-checklist.csv (one row per student and part).
 4. submission-report.json contains the detailed record, including execution logs and mock manifests.
+5. execution-next-steps.csv, when present, lists unresolved runtime issues, source/cell lines and suggested follow-up checks. Native follow-up reports retain earlier attempts in execution_history.
 
 {GUIDANCE}
 
@@ -291,9 +306,11 @@ CSV cells that could be interpreted as spreadsheet formulas are prefixed with an
 
 App: https://hopebestworld.github.io/AutoGrader/
 '''
-    return {'START-HERE.txt': readme.encode('utf-8'), 'TA-report.html': html_report(report),
+    files={'START-HERE.txt': readme.encode('utf-8'), 'TA-report.html': html_report(report),
             'student-overview.csv': csv_bytes(overview_rows(report)), 'part-checklist.csv': csv_bytes(checklist_rows(report)),
             'submission-report.json': json.dumps(report, ensure_ascii=False, indent=2).encode('utf-8')}
+    if recovery:files['execution-next-steps.csv']=csv_bytes(recovery)
+    return files
 
 
 def handoff_zip(files):

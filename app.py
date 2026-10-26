@@ -9,6 +9,8 @@ import zipfile
 import streamlit as st
 from execution_summary import summarize_student, summarize_batch, summarize_attempt, retryable_browser_result
 from report_exports import handoff_files, handoff_zip, summarize_parts
+from execution_diagnostics import recovery_rows
+from native_followup import followup_plan, make_colab_notebook
 from prerequisites import preflight_submission
 from grader_core import (normalize_execution_results, native_execution_available, group_submissions, load_profile, profile_digest,
                          review_folder, run_entrypoint, safe_extract, serializable_report,
@@ -55,9 +57,11 @@ def main():
     if native_execution:
         st.caption('Check with original inputs, or select an explicitly labeled mock smoke test when inputs are missing. Mock success does not verify the original data, helper behavior, or completion.')
     browser_result_upload = None
+    native_result_upload = None
     if not native_execution:
         with st.expander('Advanced: browser execution report import'):
             browser_result_upload = st.file_uploader('Browser execution results (automatic)', type=['json'])
+        native_result_upload = st.file_uploader('Import native follow-up results (optional)', type=['json'],help='Extract submission-report.json from the native follow-up TA ZIP. The submissions and checklist must match this session.')
     mock_enabled, mock_fixtures, mock_words = False, None, 18000
     timeout, mappings_text, consent = 120, '{}', False
     if native_execution:
@@ -113,22 +117,51 @@ def main():
         return
     rows = state['rows']
     browser_results_applied = False
+    native_results_applied = False
     browser_result_digest = None
     if browser_result_upload:
         try:
             incoming = json.loads(browser_result_upload.getvalue())
+            if not isinstance(incoming,dict):raise ValueError('Expected a report JSON object.')
             expected_hash = hashlib.sha256(archive.getvalue()).hexdigest()
             if incoming.get('archive_sha256') != expected_hash or incoming.get('assignment_digest') != profile_digest(profile):
                 st.warning('Browser results belong to different submissions or checklist; run the current inputs again.')
             else:
                 lookup = {r['student']:r for r in incoming.get('students',[])}
-                for current in rows:
-                    if current['student'] in lookup:
-                        current['execution'] = normalize_execution_results(lookup[current['student']].get('execution',[]))
-                browser_results_applied = any(r['execution'] for r in rows)
                 browser_result_digest = hashlib.sha256(browser_result_upload.getvalue()).hexdigest()
+                if browser_result_digest!=state.get('applied_browser_digest'):
+                    normalized={key:normalize_execution_results(value.get('execution',[])) for key,value in lookup.items()}
+                    for current in rows:
+                        if current['student'] in normalized:current['execution']=normalized[current['student']]
+                    state['applied_browser_digest']=browser_result_digest
+                    state.pop('native_followup',None)
+                    state['execution_source']='browser'
         except (ValueError,TypeError,KeyError) as exc:
             st.warning(f'Cannot read browser execution results: {exc}')
+
+    if native_result_upload and st.button('Apply native follow-up results'):
+        try:
+            incoming=json.loads(native_result_upload.getvalue())
+            if not isinstance(incoming,dict):raise ValueError('Expected a native report JSON object.')
+            if incoming.get('archive_sha256')!=hashlib.sha256(archive.getvalue()).hexdigest() or incoming.get('assignment_digest')!=profile_digest(profile):
+                raise ValueError('The native results belong to different submissions or a different checklist.')
+            if not incoming.get('native_followup'):
+                raise ValueError('Choose submission-report.json from a native follow-up TA ZIP.')
+            lookup={row['student']:row for row in incoming.get('students',[])}
+            # Validate the whole import before mutating any current rows.
+            normalized={key:normalize_execution_results(row.get('execution',[])) for key,row in lookup.items()}
+            histories={key:normalize_execution_results(row.get('execution_history',[])) for key,row in lookup.items()}
+            for current in rows:
+                if current['student'] in lookup:
+                    current['execution']=normalized[current['student']]
+                    current['execution_history']=histories[current['student']]
+            native_results_applied=True
+            state['native_followup']=incoming['native_followup']
+            state['execution_source']='native follow-up'
+        except (ValueError,TypeError,KeyError) as exc:
+            st.warning(f'Cannot import native follow-up results: {exc}')
+    native_results_applied=state.get('execution_source')=='native follow-up'
+    browser_results_applied=state.get('execution_source')=='browser' and any(r['execution'] for r in rows)
 
     if not rows:
         st.warning('No submissions found in this archive.')
@@ -137,7 +170,9 @@ def main():
     if not native_execution and any(e.get('file') and retryable_browser_result(e) for row in rows for e in row['execution']):
         st.button('Retry interrupted runs')
         st.caption('Retries browser timeouts and runtime interruptions. Completed runs and code-error results are kept.')
-    if browser_results_applied:
+    if native_results_applied:
+        st.info('Native follow-up results are imported. Earlier browser attempts are retained in the execution history; completion decisions in this session are preserved.')
+    elif browser_results_applied:
         st.info('Browser execution results are displayed below. These are browser/mock checks, not native marimo validation.')
     elif not native_execution:
         st.warning('Code has not been run for this review yet. Click Run submissions to test supported entrypoints; open browser diagnostics below for progress.')
@@ -277,6 +312,7 @@ def main():
                 st.dataframe(result['mocks']['manifest'], hide_index=True)
             outcome = summarize_attempt(result)
             st.write('Run result:', outcome['answer'])
+            st.write('Execution runtime:',outcome['runtime'])
             st.write('Supplied files referenced:', ', '.join(outcome['supplied_files']) or 'None matched by the input inventory')
             st.write('Mocks substituted:', '; '.join(outcome['mock_files']) or 'None')
             st.caption('This is a file-reference inventory; a match alone does not prove that every conditional code path read that file.')
@@ -290,13 +326,19 @@ def main():
             st.code(result.get('log', ''), language='text')
             if result.get('artifact'):
                 st.download_button('Download executed output', result['artifact'], f'{student}-{result["artifact_name"]}', key=f'artifact-{review_id}-{student}-{index}')
+    if row.get('execution_history'):
+        with st.expander('Earlier execution attempts (retained history)'):
+            st.caption('These attempts are retained for comparison. The table summarizes the current active results above.')
+            for previous in row['execution_history']:
+                st.write(previous.get('file',''),previous.get('status',''))
+                st.code(previous.get('log',''),language='text')
     display_rows=[]
     categories={'Ran successfully':'ran','Run hit an error':'test_error','Cannot determine':'unknown','Not tested':'not_run'}
     for current in rows:
         outcome=summarize_student(current)
         if run_filter!='All students' and outcome['category']!=categories[run_filter]: continue
         parts = summarize_parts(current)
-        display_rows.append({'Student':current['student'],'Runs?':outcome['answer'],'Test inputs':outcome['inputs'],'Reason':outcome['reason'],'Next step':outcome['next_step'],
+        display_rows.append({'Student':current['student'],'Runs?':outcome['answer'],'Runtime':outcome['runtime'],'Test inputs':outcome['inputs'],'Reason':outcome['reason'],'Next step':outcome['next_step'],
                              'Supplied files referenced':'; '.join(outcome['supplied_files']) or 'None matched', 'Mocks substituted':'; '.join(outcome['mock_files']) or 'None',
                              'Completion':parts['status'], 'Parts marked complete':'; '.join(parts['reviewed_complete']) or 'None marked',
                              'Parts marked incomplete':'; '.join(parts['reviewed_incomplete']) or 'None marked',
@@ -308,6 +350,24 @@ def main():
     report = serializable_report(profile, rows)
     report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser execution subset' if browser_results_applied else 'browser review', 'browser_execution':browser_results_applied}
     report['archive_sha256'] = hashlib.sha256(archive.getvalue()).hexdigest()
+    if native_results_applied:
+        report['native_followup']=state['native_followup']
+        report['runtime_capabilities']={'edition':'browser results with native follow-up','native_followup':True}
+    recovery=recovery_rows(report)
+    if recovery:
+        st.subheader('How to check the remaining submissions')
+        st.dataframe(recovery,hide_index=True)
+        st.caption('Source diagnostics are static hints. An unresolved generated argument may be unused on the tested path; a name that is actually read must be defined. Native follow-up checks the original code with real Python. No values or successful results are invented.')
+        try:
+            native_plan=followup_plan(report)
+        except ValueError as exc:
+            native_plan={};st.warning(f'Cannot prepare native follow-up: {exc}')
+        if native_plan:
+            with st.expander('Free native Python follow-up with Google Colab'):
+                st.write('Download the notebook, open Google Colab → File → Upload notebook, and follow its four cells. Upload the original Canvas ZIP there, review the settings, then enable execution. Free CPU runtimes require Google sign-in and have availability limits. No paid AI or GPU is needed.')
+                st.caption('The notebook includes your current report and checker source. The app sends nothing to Google automatically. Keep the notebook with the grading team and use a fresh Colab runtime without mounted Drive files or secrets.')
+                st.download_button('Download native follow-up notebook',make_colab_notebook(report),'AutoGrader-native-followup.ipynb','application/x-ipynb+json')
+                st.link_button('Open Google Colab','https://colab.research.google.com/')
     st.subheader('Download and share with another TA')
     st.write('Start with the TA handoff ZIP: it includes an offline report, a student overview spreadsheet, a part-by-part checklist, and detailed execution records. Every assignment part shows its reviewed decision or what still needs checking.')
     st.caption('Downloads include ALL students, regardless of the outcome filter above. The HTML report supports search, filters, and printing to PDF. It is a read-only snapshot; record decisions here and export again.')

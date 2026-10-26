@@ -26,6 +26,41 @@ app.main()
 
 
 class AppTests(unittest.TestCase):
+    def test_native_import_keeps_decisions_history_and_survives_browser_rerenders(self):
+        script=UI.replace("    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None",'''    import hashlib,json
+    from grader_core import load_profile,profile_digest
+    from pathlib import Path
+    profile=load_profile((Path(app.__file__).parent/'assignments/assignment-7.json').read_bytes(),'a.json')
+    browser={'file':'main.py','status':'BROWSER RUNTIME BLOCKED','log':'Error'}
+    if label=='Browser execution results (automatic)' and st.session_state.get('browser'):
+        if st.session_state.get('new_browser'):browser={'file':'main.py','status':'BROWSER EXECUTION ERROR','log':'ValueError: NEW_BROWSER_ERROR'}
+        payload={'archive_sha256':hashlib.sha256(buf.getvalue()).hexdigest(),'assignment_digest':profile_digest(profile),'students':[{'student':'demo_123','execution':[browser]}]}
+        return Upload(json.dumps(payload).encode())
+    if label=='Import native follow-up results (optional)' and st.session_state.get('native'):
+        payload={'archive_sha256':hashlib.sha256(buf.getvalue()).hexdigest(),'assignment_digest':profile_digest(profile),
+                 'native_followup':{'students':['demo_123']},'students':[{'student':'demo_123','execution':[{'file':'main.py','status':'RAN SUCCESSFULLY','runtime':'native Python','log':'NATIVE_OK'}],'execution_history':[browser]}]}
+        return Upload(json.dumps(payload).encode())
+    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None''')
+        script=script.replace('app.main()',"from unittest.mock import patch\nwith patch('app.native_execution_available',return_value=False):\n    app.main()")
+        at=AppTest.from_string(script).run(timeout=30)
+        next(b for b in at.button if b.label.startswith('Review submissions')).click().run(timeout=30)
+        at.session_state['browser']=True;at.run(timeout=30)
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state['report']['rows'][0]['execution'][0]['status'],'BROWSER RUNTIME BLOCKED')
+        next(s for s in at.selectbox if s.label=='Completion decision').select('Complete').run()
+        at.session_state['native']=True;at.run(timeout=30)
+        next(b for b in at.button if b.label=='Apply native follow-up results').click().run(timeout=30)
+        at.run(timeout=30)
+        self.assertFalse(at.exception)
+        row=at.session_state['report']['rows'][0]
+        self.assertEqual(row['requirements'][0]['review'],'Complete')
+        self.assertEqual(row['execution'][0]['log'],'NATIVE_OK')
+        self.assertEqual(row['execution_history'][0]['status'],'BROWSER RUNTIME BLOCKED')
+        at.session_state['new_browser']=True;at.run(timeout=30)
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state['report']['rows'][0]['execution'][0]['log'],'ValueError: NEW_BROWSER_ERROR')
+        self.assertNotIn('native_followup',at.session_state['report'])
+
     def test_render_review_decisions_and_execution(self):
         at = AppTest.from_string(UI).run(timeout=30)
         self.assertFalse(at.exception)

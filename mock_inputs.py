@@ -37,6 +37,11 @@ def synthetic_text(words=18000, hints=None):
 def infer_text_hints(work):
     from prerequisites import sources
     starts,ends,phrases=[],[],[]
+    def add(value,where=None):
+        if not isinstance(value,str) or not 5<=len(value)<=300 or value.startswith(('http:','https:')):return
+        end=bool(re.search(r'\bend\b|license|end_marker|end_text',str(where or '')+' '+value,re.I))
+        destination=ends if end else starts
+        if value not in destination:destination.append(value)
     for _,source in sources(work):
         try:tree=ast.parse(source)
         except SyntaxError:continue
@@ -50,11 +55,6 @@ def infer_text_hints(work):
             if isinstance(n,ast.Assign) and isinstance(n.value,ast.Constant) and isinstance(n.value.value,str):
                 for t in n.targets:
                     if isinstance(t,ast.Name):bindings[t.id]=n.value.value
-        def add(value,where=None):
-            if not isinstance(value,str) or not 5<=len(value)<=300 or value.startswith(('http:','https:')):return
-            end=bool(re.search(r'\bend\b|license|end_marker|end_text',str(where or '')+' '+value,re.I))
-            destination=ends if end else starts
-            if value not in destination:destination.append(value)
         for n in ast.walk(tree):
             if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='contains' and n.args and isinstance(n.args[0],ast.Constant) and isinstance(n.args[0].value,str) and len(n.args[0].value)>10:
                 if any(k.arg=='regex' and isinstance(k.value,ast.Constant) and k.value.value is False for k in n.keywords):phrases.append(n.args[0].value)

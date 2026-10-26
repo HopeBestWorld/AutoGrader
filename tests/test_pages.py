@@ -21,6 +21,8 @@ class PagesTests(unittest.TestCase):
             bundle=next(output.glob('app-bundle-*.json'))
             app=json.loads(bundle.read_text())
             self.assertEqual(set(app['files']),set(module.APP_FILES))
+            from native_followup import FOLLOWUP_FILES
+            self.assertTrue(set(FOLLOWUP_FILES)<=set(app['files']))
             self.assertEqual(app['entrypoint'],'app.py')
             self.assertTrue((output/'.nojekyll').exists())
             html=(output/'index.html').read_text()

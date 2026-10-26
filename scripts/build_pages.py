@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_FILES = ('app.py', 'browser_execution.py', 'execution_summary.py', 'report_exports.py', 'grader_core.py', 'prerequisites.py', 'mock_inputs.py',
+APP_FILES = ('app.py', 'browser_execution.py', 'execution_summary.py', 'execution_diagnostics.py', 'native_followup.py', 'notebook_worker.py', 'report_exports.py', 'grader_core.py', 'prerequisites.py', 'mock_inputs.py',
              'mock_helpers/sentiment_toolkit.py', 'mock_helpers/transformers.py', 'mock_helpers/readability_tools.py',
              'mock_helpers/_readability_nlp.py', 'mock_helpers/spacy.py', 'mock_helpers/en_core_web_sm.py',
              'mock_helpers/wordfreq.py', 'mock_helpers/textstat.py', 'assignments/assignment-7.json', 'assignments/assignment-8.json')

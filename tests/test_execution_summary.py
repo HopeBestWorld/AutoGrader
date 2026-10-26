@@ -16,6 +16,19 @@ class ExecutionSummaryTests(unittest.TestCase):
     def test_real_runtime_error_is_visible(self):
         r=summarize_attempt({'status':'BROWSER EXECUTION ERROR','log':'NameError: missing_variable is not defined'})
         self.assertEqual(r['category'],'test_error');self.assertIn('missing_variable',r['reason'])
+    def test_missing_notebook_variables_explain_why_files_are_insufficient(self):
+        result=summarize_attempt({'status':'MOCK BROWSER EXECUTION ERROR','log':'NameError: Notebook dependencies not defined or exported: CLEAR_URL, corpus'})
+        self.assertEqual(result['answer'],'Unknown — notebook dependency check')
+        self.assertIn('CLEAR_URL',result['reason'])
+        self.assertIn('mock files alone',result['next_step'])
+    def test_native_marimo_uses_root_error_before_ancestor_noise(self):
+        result=summarize_attempt({'status':'MOCK SMOKE TEST FAILED','log':"MarimoExceptionRaisedError: name 'corpus' is not defined\nMarimoExceptionRaisedError: An ancestor raised an exception (NameError):"})
+        self.assertIn("name 'corpus' is not defined",result['reason'])
+        self.assertNotIn('ancestor',result['reason'])
+    def test_native_environment_failure_is_not_called_a_browser_limitation(self):
+        result=summarize_attempt({'status':'MOCK SMOKE TEST BLOCKED','runtime':'native Python','log':'requests.exceptions.ConnectionError: unable to download model\nMarimoExceptionRaisedError: installer command failed'})
+        self.assertEqual(result['answer'],'Unknown — native environment blocked')
+        self.assertIn('unable to download model',result['reason'])
     def test_partial_success_does_not_hide_other_failures(self):
         row={'execution':[{'status':'BROWSER RUN SUCCEEDED'},{'status':'BROWSER TIMEOUT — INCONCLUSIVE'}]}
         r=summarize_student(row);self.assertEqual(r['category'],'unknown');self.assertIn('1/2',r['reason'])

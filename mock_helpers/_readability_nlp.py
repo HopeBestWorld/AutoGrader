@@ -17,6 +17,12 @@ class Token:
     @property
     def lower_(self): return self.text.lower()
     @property
+    def whitespace_(self):
+        end=self.doc._tokens[self.i+1].idx if self.i+1<len(self.doc._tokens) else len(self.doc.text)
+        return self.doc.text[self.idx+len(self.text):end]
+    @property
+    def text_with_ws(self): return self.text+self.whitespace_
+    @property
     def pos_(self):
         return 'PUNCT' if self.is_punct else ('NOUN', 'VERB', 'ADJ', 'ADV', 'PROPN')[self.i % 5]
     @property

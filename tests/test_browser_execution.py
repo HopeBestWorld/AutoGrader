@@ -4,6 +4,24 @@ import unittest
 from browser_execution import run_browser_entry
 
 class BrowserExecutionTests(unittest.TestCase):
+    def test_unbound_generated_argument_is_not_a_placeholder_value(self):
+        source='''import marimo
+app=marimo.App()
+@app.cell
+def _(MISSING):
+    local_exists=True
+    choice='provided book' if local_exists else MISSING
+    assert choice=='provided book'
+    return
+'''
+        result=self.run_code(source)
+        self.assertIn('RUN SUCCEEDED',result['status'],result['log'])
+        self.assertEqual(result['deferred_declared_dependencies'][0]['names'],['MISSING'])
+        actual_read=source.replace("local_exists=True","local_exists=False")
+        self.assertIn('NameError',self.run_code(actual_read)['log'])
+        identity_read=source.replace("choice='provided book' if local_exists else MISSING","choice='provided book' if MISSING is None else 'bad'")
+        self.assertIn('NameError',self.run_code(identity_read)['log'])
+
     def run_code(self,source,mock=False):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp)/'main.py').write_text(source)
