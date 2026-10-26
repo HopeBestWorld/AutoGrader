@@ -29,9 +29,9 @@ LEGEND = [
 LABELS = {key: label for key, label, _ in LEGEND}
 CSV_PART_SYMBOLS = {
     'complete': '✅', 'incomplete': '❌', 'not_applicable': '➖',
-    'missing': '🔎', 'partial': '🔎', 'candidate': '🔎', 'unassessed': '🔎',
+    'missing': '❌', 'partial': '❌', 'candidate': '✅', 'unassessed': '❌',
 }
-CSV_PART_KEY = 'CSV part key: ✅ complete (reviewed) · ❌ incomplete (reviewed) · 🔎 needs review · ➖ not applicable.'
+CSV_PART_KEY = 'CSV part key: ✅ evidence found · ❌ missing or partial evidence · ➖ not applicable. Recorded grader decisions override automatic checks.'
 
 
 def part_summary(part):
@@ -133,7 +133,7 @@ def overview_rows(report):
         lookup = {p['id']: p for p in summary['parts']}
         for part in requirements:
             value = lookup.get(part['id'])
-            row[f'{part["id"]}: {part["title"]}'] = CSV_PART_SYMBOLS[value['category']] if value else '🔎'
+            row[f'{part["id"]}: {part["title"]}'] = CSV_PART_SYMBOLS[value['category']] if value else '❌'
         rows.append(row)
     return rows
 
@@ -170,17 +170,16 @@ def compact_rows(report):
     result=[]
     for student in report['students']:
         run=student['run_summary'];parts=student['completion_summary']
+        symbols={p['id']:CSV_PART_SYMBOLS[p['category']] for p in parts['parts']}
         row={'Assignment':report.get('assignment',{}).get('title','Assignment'),'Student':student['student'],
              'Files':'; '.join(dict.fromkeys(str(e.get('file') or '') for e in student.get('execution',[]) if e.get('file'))) or 'No entrypoint recorded',
              'Run result':run['answer'],'Test inputs':run['inputs'],'Setup scope':run['setup_scope'],
-             'Completion review':parts['status'],'Parts complete (reviewed)':len(parts['reviewed_complete']),
-             'Parts incomplete (reviewed)':len(parts['reviewed_incomplete']),
-             'Parts awaiting review':len(parts['awaiting_review']),
-             'Check first':'; '.join(parts['check_first']) or ('Confirm remaining evidence' if parts['awaiting_review'] else 'No pending review'),
+             'Parts marked ✅':sum(value=='✅' for value in symbols.values()),
+             'Parts marked ❌':sum(value=='❌' for value in symbols.values()),
+             'Check first':'; '.join(p['title'] for p in parts['parts'] if symbols[p['id']]=='❌') or 'None',
              'Run reason':run['reason'],'Run next step':run['next_step']}
-        lookup={p['id']:p for p in parts['parts']}
         for index,requirement in enumerate(report.get('assignment',{}).get('requirements',[]),1):
-            row[f'{index}. {requirement["title"]}']=CSV_PART_SYMBOLS[lookup[requirement['id']]['category']]
+            row[f'{index}. {requirement["title"]}']=symbols[requirement['id']]
         result.append(row)
     return result
 
@@ -409,7 +408,7 @@ Exported: {report['generated_at']}
 1. Open TA-report.html in any browser. It works offline; search/filter students and click a name for the checklist.
 2. Check flagged gaps first, then confirm all parts awaiting review. Criteria, candidate excerpts, file/line locations and reviewer notes are included.
 3. For spreadsheets, use student-overview.csv (one row per student, one column per part) or part-checklist.csv (one row per student and part).
-   class-results.csv is the compact combined sheet: run result, input/setup scope, completion review and one column per assignment part.
+   class-results.csv is the compact combined sheet: run result, input/setup scope, checkmark/cross counts and one column per assignment part.
 4. submission-report.json contains the detailed record, including execution logs and mock manifests.
 5. execution-next-steps.csv, when present, lists unresolved runtime issues, source/cell lines and suggested follow-up checks. Native follow-up reports retain earlier attempts in execution_history.
 

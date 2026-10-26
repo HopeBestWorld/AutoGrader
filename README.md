@@ -242,9 +242,9 @@ The receiving TA can:
 
 The HTML is a report-only snapshot. It includes evidence excerpts and run records, without embedding the original submissions ZIP or executing student code. Share the original ZIP separately when the next TA needs the full code or documents. To change decisions, record them in the app and export a new report; reports cannot currently restore a review session.
 
-For a spreadsheet like the sample exports, choose **Download combined results CSV** in the app. It puts each student's run result, test inputs, reviewed completion counts, parts to check first, and all assignment-part statuses in one row.
+For a spreadsheet like the sample exports, choose **Download combined results CSV** in the app. It puts each student's run result, test inputs, checkmark/cross counts, parts to check first, and all assignment-part statuses in one row.
 
-CSV part cells use **✅ complete (reviewed)**, **❌ incomplete (reviewed)**, **🔎 needs review**, and **➖ not applicable**. The same symbols appear in the overview and detailed checklist CSVs, including the CSV downloaded from the HTML report. Unreviewed evidence matches and gaps use 🔎 until a grader records a decision.
+CSV part cells default to **✅** when candidate evidence is found for the required answer types, and **❌** when evidence is missing, partial, or unassessed. Recorded **Complete / Incomplete** decisions override those automatic defaults; an explicitly **Not applicable** part uses **➖**. The same symbols appear in the overview and detailed checklist CSVs, including the CSV downloaded from the HTML report. The combined CSV uses checkmark/cross counts without a separate needs-review column. Automatic symbols are a starting checklist for the TA; detailed evidence and recorded review decisions remain in the HTML and JSON reports.
 
 ### Other export formats
 
@@ -254,7 +254,7 @@ Expand **More export formats and full execution records** for individual detaile
 | --- | --- |
 | `START-HERE.txt` | Brief instructions and a guide to interpreting the results. |
 | `TA-report.html` | The same standalone report described above. |
-| `class-results.csv` | Combined class matrix: one row per student with run results, review counts, and every assignment part. |
+| `class-results.csv` | Combined class matrix: one row per student with run results, checkmark/cross counts, and every assignment part. |
 | `student-overview.csv` | One row per student with run outcomes, completed/incomplete parts, parts to check first, and a status column for each assignment part. |
 | `part-checklist.csv` | One row per student and assignment part, with the decision, automatic evidence, criteria, suggested next check, evidence locations/excerpts, and reviewer note. |
 | `submission-report.json` | Detailed records, including completion summaries, execution logs, and mock substitution manifests. |
