@@ -252,6 +252,45 @@ def provided_candidates(paths, basename):
     return numbered, 'Unique numbered-upload filename; bytes unchanged. Confirm the supplied document version.'
 
 
+def guarded_path_literals(tree):
+    """Resolve Path inputs from unambiguous literal constants in their own scope.
+
+    Cell/local names must not borrow another cell's same-named variable. Dynamic
+    assignments, conflicting reassignments and parameters are left unresolved.
+    No submitted expressions are executed and no missing files are synthesized.
+    """
+    def scoped_nodes(node):
+        yield node
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef,ast.Lambda)):
+                yield from scoped_nodes(child)
+    def constants(nodes):
+        stores={};literals={}
+        for node in nodes:
+            if isinstance(node,ast.Name) and isinstance(node.ctx,ast.Store):stores.setdefault(node.id,[]).append(node)
+            if isinstance(node,(ast.Assign,ast.AnnAssign)) and isinstance(node.value,ast.Constant) and isinstance(node.value.value,str):
+                targets=node.targets if isinstance(node,ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target,ast.Name):literals[id(target)]=node.value.value
+        result={}
+        for name,assignments in stores.items():
+            values=[literals.get(id(node)) for node in assignments]
+            result[name]=values[0] if values and None not in values and len(set(values))==1 else None
+        return result
+    module_nodes=list(scoped_nodes(tree));globals_=constants(module_nodes)
+    scopes=[tree]+[node for node in ast.walk(tree) if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))]
+    for scope in scopes:
+        nodes=module_nodes if scope is tree else list(scoped_nodes(scope))
+        values=dict(globals_)
+        if scope is not tree:
+            for argument in scope.args.posonlyargs+scope.args.args+scope.args.kwonlyargs:values[argument.arg]=None
+        values.update(constants(nodes))
+        for node in nodes:
+            if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='Path' and node.args:
+                value=literal_path(node.args[0],values)
+                if value:yield node,value
+
+
 def stage_provided_inputs(work):
     """Match referenced files within one disposable student copy, before any mocks.
 
@@ -266,15 +305,13 @@ def stage_provided_inputs(work):
     copied_bytes = 0
     inputs=audit_prerequisites(work)['inputs']
     # Guarded candidate paths can select inputs before a read expression is resolved.
-    # Only an already supplied exact-name file may satisfy these Path literals.
+    # Only a unique already supplied file may satisfy these Path references.
     for source,code in sources(work):
         try:tree=ast.parse(code)
         except SyntaxError:continue
-        for node in ast.walk(tree):
-            if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='Path' and node.args:
-                value=literal_path(node.args[0],{})
-                if value and Path(value).suffix and provided_candidates(available,value.replace('\\','/').rsplit('/',1)[-1])[0]:
-                    inputs.append({'path':value,'source':str(source.relative_to(work)),'line':node.lineno,'reader':'supplied_path_literal'})
+        for node,value in guarded_path_literals(tree):
+            if Path(value).suffix and provided_candidates(available,value.replace('\\','/').rsplit('/',1)[-1])[0]:
+                inputs.append({'path':value,'source':str(source.relative_to(work)),'line':node.lineno,'reader':'supplied_path_literal'})
     for item in inputs:
         value = item['path']
         if value.startswith(('http://', 'https://')):

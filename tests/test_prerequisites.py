@@ -120,5 +120,49 @@ class PrerequisiteTests(unittest.TestCase):
         (self.student/'main.py').write_text('from pathlib import Path\ndef save(path):\n    with Path(path).open("w") as f:\n        f.write("created")\nsave("output.txt")')
         self.assertEqual(audit_prerequisites(self.student)['inputs'],[])
 
+    def test_named_constant_guard_uses_unique_numbered_document_without_source_repair(self):
+        source='''from pathlib import Path
+def choose_book():
+    LOCAL_FILE='Assignment8/book.txt'
+    candidates=[Path(LOCAL_FILE)]
+    local=next((path for path in candidates if path.exists()),None)
+    return local.read_text() if local else UNDEFINED_FALLBACK
+assert choose_book()=='ACTUAL SUPPLIED BOOK'
+'''
+        (self.student/'main.py').write_text(source)
+        (self.student/'book-1.txt').write_text('ACTUAL SUPPLIED BOOK')
+        result=run_entrypoint(self.student,'main.py',10,mock=False)
+        self.assertEqual(result['returncode'],0,result['log'])
+        self.assertFalse(result['mock_used'])
+        self.assertEqual((self.student/'main.py').read_text(),source)
+        self.assertFalse((self.student/'Assignment8').exists())
+        matched=next(item for item in result['supplied_inputs']['files'] if item['requested_path']=='Assignment8/book.txt')
+        self.assertEqual(matched['original'],'book-1.txt')
+        self.assertIn('numbered-upload',matched['match'])
+
+    def test_guard_constants_respect_cell_scope_parameters_and_conflicting_values(self):
+        import ast
+        from prerequisites import guarded_path_literals
+        source='''from pathlib import Path
+BOOK='global.txt'
+def first():
+    LOCAL_FILE='one/book.txt'
+    return Path(LOCAL_FILE)
+def second():
+    LOCAL_FILE='two/book.txt'
+    return Path(LOCAL_FILE)
+def dynamic(BOOK):
+    return Path(BOOK)
+def reassigned(flag):
+    if flag:
+        LOCAL_FILE='one.txt'
+    else:
+        LOCAL_FILE='two.txt'
+    return Path(LOCAL_FILE)
+def global_reference():
+    return Path(BOOK)
+'''
+        self.assertEqual([value for _,value in guarded_path_literals(ast.parse(source))],['one/book.txt','two/book.txt','global.txt'])
+
 
 if __name__=='__main__': unittest.main()
