@@ -13,7 +13,7 @@ The GitHub Pages app runs Streamlit and supported Python submissions in your bro
 3. Upload the **Canvas submissions ZIP**, including the students' executable source files and the documents/data they used. Each student's bundled files stay with that student and take precedence over generated inputs. Saved outputs alone cannot be executed.
 4. Click **Run submissions**. No execution mode selection is needed: the app uses supplied files first and automatically fills supported missing files or helpers with test substitutes. It runs detected entrypoints in fresh browser workers and returns results to the Streamlit table. Expand the browser diagnostics panel below the app for progress or advanced controls.
 5. Read **Runs?**, **Test inputs**, **Reason**, and **Next step** for each student. **Yes — with mocks** means the tested code path finished with the recorded substitutes. **Unknown** means the available inputs or browser environment prevented a determination. See [Understanding run outcomes](#understanding-run-outcomes) for the other result categories.
-6. Inspect the evidence for each assignment part and record completion decisions separately. Download the **TA handoff ZIP** before closing or refreshing the page. Share it with another TA, who can open its readable HTML report offline or use its spreadsheets.
+6. Inspect the evidence for each assignment part and record completion decisions separately. Click **Download shareable TA report (HTML)** before closing or refreshing the page. Share that single file with another TA: it opens offline with run results, a column for every assignment part, and the evidence and notes. Original submission files are kept separate.
 
 Mock mode can generate supported data files and supply defined helper/API test doubles. Every substitution is recorded; original submissions and their assertions remain intact. A successful mock run verifies the tested path with those substitutes. Original data/helper/model behavior and assignment completion still need separate review. Unknown helper APIs or incompatible code may require a compatible fixture or the native edition.
 
@@ -227,19 +227,37 @@ uv run --frozen python native_followup.py --report submission-report.json --subm
 
 Omit `--execute` to print the follow-up plan without running code. Use `--student` repeatedly to choose unresolved students, `--shared` / `--resources` for course or personal ZIPs, and `--provided-inputs` to disable automatic mocks. The original archive checksum is checked before any execution.
 
-### Share the TA handoff
+### Share one readable report
 
-Choose **Download TA handoff ZIP** in the main Streamlit interface. It includes:
+Choose **Download shareable TA report (HTML)** in the main Streamlit interface. Send the resulting `TA-report.html` to the other TA, who can open it in a browser without an account, installation, internet connection, or extracting a ZIP.
+
+The report starts with a class overview: one student per row, their run result, and one column for every assignment part. Supplied-input passes, mock-input passes, adapted browser tests, errors, and undetermined runs have distinct labels. Part badges distinguish **Complete / Incomplete (reviewed)** from automatic evidence that still needs inspection. This keeps a successful smoke test separate from a completion decision.
+
+The receiving TA can:
+
+- Search by student name, Canvas ID, or filename; filter by run result and review status; and sort to see work needing attention first.
+- Click a student or part badge to inspect criteria, candidate excerpts, file/line locations, execution details, and reviewer notes.
+- Use **Download class CSV** inside the report for a combined spreadsheet with run results and a column for each assignment part. This always includes the full class, regardless of filters.
+- Use **Print overview / PDF** for a compact copy of the currently visible class matrix.
+
+The HTML is a report-only snapshot. It includes evidence excerpts and run records, without embedding the original submissions ZIP or executing student code. Share the original ZIP separately when the next TA needs the full code or documents. To change decisions, record them in the app and export a new report; reports cannot currently restore a review session.
+
+For a spreadsheet like the sample exports, choose **Download combined results CSV** in the app. It puts each student's run result, test inputs, reviewed completion counts, parts to check first, and all assignment-part statuses in one row.
+
+### Other export formats
+
+Expand **More export formats and full execution records** for individual detailed spreadsheets, JSON records, or **Download TA handoff ZIP**. The ZIP includes:
 
 | File | Use |
 | --- | --- |
 | `START-HERE.txt` | Brief instructions and a guide to interpreting the results. |
-| `TA-report.html` | Offline report with a class overview, student search, review filters, and a checklist for every student. Click a student or part to inspect criteria, candidate excerpts, file/line locations, and reviewer notes. Use **Print / save PDF** to print the current selection. |
+| `TA-report.html` | The same standalone report described above. |
+| `class-results.csv` | Combined class matrix: one row per student with run results, review counts, and every assignment part. |
 | `student-overview.csv` | One row per student with run outcomes, completed/incomplete parts, parts to check first, and a status column for each assignment part. |
 | `part-checklist.csv` | One row per student and assignment part, with the decision, automatic evidence, criteria, suggested next check, evidence locations/excerpts, and reviewer note. |
 | `submission-report.json` | Detailed records, including completion summaries, execution logs, and mock substitution manifests. |
 
-The HTML and CSV files can also be downloaded individually. All downloads include every student, even when the on-screen run filter hides some students. CSV files use UTF-8 with a BOM for spreadsheet compatibility, and potentially executable formula cells are prefixed with an apostrophe.
+All app downloads include every student, even when the on-screen run filter hides some students. CSV files use UTF-8 with a BOM for spreadsheet compatibility, and potentially executable formula cells are prefixed with an apostrophe.
 
 Each part clearly distinguishes the grader's decision from the automatic evidence search:
 
@@ -251,10 +269,11 @@ Each part clearly distinguishes the grader's decision from the automatic evidenc
 | **Check: partial evidence** | Some evidence was found; check the missing answer types and every criterion. |
 | **Review: evidence found** | Candidate answers were found; confirm that they address every criterion. |
 | **Not applicable (reviewed)** | A grader marked the part not applicable. |
+| **Not assessed — review needed** | This assignment part has no assessment record, for example in a partial older report. Inspect the submission before deciding. |
 
 The review queue puts marked-incomplete parts and evidence gaps first, followed by remaining candidate answers to confirm. Successful code execution never automatically marks parts complete. No accuracy grades are assigned.
 
-Exports are read-only snapshots. Record decisions and notes in the app, then export again; reports cannot currently restore a review session. Keep the original Canvas ZIP available for full source and attachments; the handoff includes candidate excerpts rather than all original files. The advanced browser diagnostics panel can also export a TA handoff ZIP from its browser results. Use the main Streamlit downloads to include the latest completion decisions made in that interface. Reports contain student evidence, so share them through your usual course channel; uploaded files and generated reports are not published to GitHub Pages.
+The advanced browser diagnostics panel can also export a TA handoff ZIP from its browser results. Use the main Streamlit downloads to include the latest completion decisions made in that interface. Reports contain student evidence, so share them through your usual course channel; uploaded files and generated reports are not published to GitHub Pages.
 
 ## Compatible mock fixtures and their boundaries
 

@@ -391,14 +391,16 @@ def main():
                 st.download_button('Download native follow-up notebook',make_colab_notebook(report),'AutoGrader-native-followup.ipynb','application/x-ipynb+json')
                 st.link_button('Open Google Colab','https://colab.research.google.com/')
     st.subheader('Download and share with another TA')
-    st.write('Start with the TA handoff ZIP: it includes an offline report, a student overview spreadsheet, a part-by-part checklist, and detailed execution records. Every assignment part shows its reviewed decision or what still needs checking.')
-    st.caption('Downloads include ALL students, regardless of the outcome filter above. The HTML report supports search, filters, and printing to PDF. It is a read-only snapshot; record decisions here and export again.')
+    st.write('Share one HTML report. The TA can open it in any browser to see a class grid of run results and every assignment part, then click a badge for evidence and notes. It works offline and includes a compact CSV download.')
+    st.caption('Report only: original submissions are not embedded, keeping the file smaller. Send the original Canvas ZIP alongside it when full source is needed. Downloads include ALL students and the latest review decisions, regardless of the filter above.')
     files = handoff_files(report)
-    st.download_button('Download TA handoff ZIP', handoff_zip(files), 'TA-handoff.zip', 'application/zip', type='primary')
-    st.download_button('Download readable TA report (HTML)', files['TA-report.html'], 'TA-report.html', 'text/html')
-    st.download_button('Download plain-language results CSV', files['student-overview.csv'], 'student-overview.csv', 'text/csv')
-    st.download_button('Download part-by-part checklist CSV', files['part-checklist.csv'], 'part-checklist.csv', 'text/csv')
-    st.download_button('Download report with review decisions and execution logs', files['submission-report.json'], 'submission-report.json', 'application/json')
+    st.download_button('Download shareable TA report (HTML)',files['TA-report.html'],'TA-report.html','text/html',type='primary')
+    st.download_button('Download combined results CSV',files['class-results.csv'],'TA-class-results.csv','text/csv')
+    with st.expander('More export formats and full execution records'):
+        st.download_button('Download TA handoff ZIP', handoff_zip(files), 'TA-handoff.zip', 'application/zip')
+        st.download_button('Download plain-language results CSV', files['student-overview.csv'], 'student-overview.csv', 'text/csv')
+        st.download_button('Download part-by-part checklist CSV', files['part-checklist.csv'], 'part-checklist.csv', 'text/csv')
+        st.download_button('Download report with review decisions and execution logs', files['submission-report.json'], 'submission-report.json', 'application/json')
     st.caption('Download before leaving the session; results are held in memory. The original Canvas ZIP remains your source for all files and attachments.')
     if browser_result_digest:
         # The browser bridge waits for this marker after the updated downloads render.

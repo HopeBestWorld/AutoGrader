@@ -156,6 +156,12 @@ with patch('streamlit.download_button', side_effect=capture_download):
             checklist = list(csv.DictReader(io.StringIO(archive.read('part-checklist.csv').decode('utf-8-sig'))))
             self.assertEqual(len(checklist), 12)
             self.assertIn('Please add the book title.', archive.read('TA-report.html').decode())
+        html=at.session_state['downloads']['Download shareable TA report (HTML)']
+        self.assertIn(b'overview-body',html)
+        self.assertIn(b'Please add the book title.',html)
+        combined=list(csv.DictReader(io.StringIO(at.session_state['downloads']['Download combined results CSV'].decode('utf-8-sig'))))
+        self.assertEqual(len(combined),2)
+        self.assertEqual(combined[0]['1. '+report['assignment']['requirements'][0]['title']],'Complete (reviewed)')
         table = next(frame.value for frame in at.dataframe if 'Assignment part' in frame.value.columns)
         self.assertEqual(table.iloc[0]['Status'], 'Complete (reviewed)')
         self.assertEqual(table.iloc[1]['Reviewer note'], 'Please add the book title.')

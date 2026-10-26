@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 from grader_core import serializable_report
 from report_exports import (checklist_rows, csv_bytes, handoff_files, handoff_zip,
-                            html_report, overview_rows, summarize_parts)
+                            html_report, overview_rows, summarize_parts,compact_rows,prepare_report)
 
 
 def fixture():
@@ -98,7 +98,7 @@ class ReportExportTests(unittest.TestCase):
         report['students'][0]['run_summary'] = {'answer': 'Wrong stale result'}
         files = handoff_files(report)
         with zipfile.ZipFile(io.BytesIO(handoff_zip(files))) as archive:
-            self.assertEqual(set(archive.namelist()), {'START-HERE.txt', 'TA-report.html', 'student-overview.csv',
+            self.assertEqual(set(archive.namelist()), {'START-HERE.txt', 'TA-report.html', 'class-results.csv','student-overview.csv',
                                                       'part-checklist.csv', 'submission-report.json'})
             exported = json.loads(archive.read('submission-report.json'))
             self.assertEqual(exported['students'][0]['completion_summary']['status'], 'Incomplete (reviewed)')
@@ -116,6 +116,36 @@ class ReportExportTests(unittest.TestCase):
         self.assertEqual(summary['reviewed_complete'], [])
         self.assertEqual(summary['check_first'], [])
         self.assertEqual(len(summary['awaiting_review']), 6)
+
+    def test_combined_csv_and_matrix_include_every_part_and_run_scope(self):
+        report=fixture()
+        rows=compact_rows(report)
+        self.assertEqual(len(rows),1)
+        self.assertIn('with mocks',rows[0]['Run result'])
+        self.assertEqual(rows[0]['1. Part 0: Analyze'],'Complete (reviewed)')
+        self.assertEqual(rows[0]['2. Part 1: Analyze'],'Incomplete (reviewed)')
+        self.assertEqual(rows[0]['5. Part 4: Analyze'],'Review: evidence found')
+        soup=BeautifulSoup(html_report(report),'html.parser')
+        self.assertEqual(len(soup.select('.matrix thead th')),9)
+        cells=soup.select('.matrix .part-cell')
+        self.assertEqual(len(cells),6)
+        self.assertEqual([cell.select_one('a')['class'][1] for cell in cells],['complete','incomplete','missing','partial','candidate','not_applicable'])
+        self.assertTrue(soup.select_one('#csv-download'))
+        self.assertNotIn('Download original',soup.get_text())
+
+    def test_omitted_assessment_cannot_make_partial_record_complete(self):
+        report=fixture();original=report['students'][0]['requirements'][:1]
+        report['students'][0]['requirements']=original
+        prepared=prepare_report(report)
+        row=prepared['students'][0]
+        self.assertEqual(row['requirements'],original)
+        self.assertEqual(len(row['completion_summary']['parts']),6)
+        self.assertEqual(row['completion_summary']['status'],'Needs review')
+        self.assertEqual(row['completion_summary']['counts']['unassessed'],5)
+        self.assertEqual(compact_rows(report)[0]['2. Part 1: Analyze'],'Not assessed — review needed')
+        soup=BeautifulSoup(html_report(report),'html.parser')
+        self.assertEqual(len(soup.select('.matrix .part-cell .unassessed')),5)
+        self.assertEqual(len(report['students'][0]['requirements']),1)
 
     def test_empty_and_not_applicable_checklists_are_not_reported_as_complete(self):
         self.assertEqual(summarize_parts({'requirements': []})['status'], 'Needs review')
