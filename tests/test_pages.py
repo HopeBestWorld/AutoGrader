@@ -36,7 +36,7 @@ class PagesTests(unittest.TestCase):
         script=UI.replace("    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None", "    if label == 'Browser execution results (automatic)' and st.session_state.get('inject_result'):\n        import json,hashlib\n        from grader_core import load_profile,profile_digest\n        from pathlib import Path\n        profile=load_profile((Path(app.__file__).parent/'assignments/assignment-7.json').read_bytes(),'a.json')\n        payload={'archive_sha256':hashlib.sha256(buf.getvalue()).hexdigest(),'assignment_digest':profile_digest(profile),'students':[{'student':'demo_123','execution':[{'status':'BROWSER TIMEOUT — INCONCLUSIVE','log':'worker timeout'}]}]}\n        return Upload(json.dumps(payload).encode())\n    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None")
         script=script.replace('app.main()',"from unittest.mock import patch\nwith patch('app.native_execution_available', return_value=False):\n    app.main()")
         at=AppTest.from_string(script).run(timeout=30)
-        next(b for b in at.button if b.label=='Run browser checks (with mocks)').click().run(timeout=30)
+        next(b for b in at.button if b.label=='Run submissions').click().run(timeout=30)
         self.assertFalse(at.exception)
         at.session_state['inject_result']=True
         at.run()
@@ -58,7 +58,8 @@ class PagesTests(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertEqual(len(at.session_state['report']['rows']),1)
         self.assertTrue(next(b for b in at.button if b.label=='Run selected entrypoints').disabled)
-        self.assertTrue(next(c for c in at.checkbox if c.label.startswith('Execute student code')).disabled)
+        self.assertFalse(any(s.label=='Execution mode' for s in at.selectbox))
+        self.assertFalse(any(c.label.startswith('Execute student code') for c in at.checkbox))
         self.assertEqual(len([s for s in at.selectbox if s.label=='Completion decision']),6)
 
 

@@ -22,11 +22,11 @@ def main():
     st.title('Assignment Submission Checker')
     native_execution = native_execution_available()
     if not native_execution:
-        st.info('GitHub Pages edition: Upload the ZIP and instructions, then click Run browser checks (with mocks). The Runs? column reports whether the tested path finished. Unknown means the browser or inputs prevented a determination; it is not a student-code failure.')
+        st.info('GitHub Pages edition: Upload the ZIP and instructions, then click Run submissions. The Runs? column reports whether the tested path finished. Unknown means the browser or inputs prevented a determination; it is not a student-code failure.')
         st.caption('Uploads stay in this browser session; this app does not send them to an autograding server. Export your report before leaving. Expanded archives are limited to 128 MiB.')
     st.write('Check whether code runs and review whether every assignment part is answered. No accuracy scores are assigned.')
     st.caption('Execution and completion are separate. Evidence matches help you find answers; they do not establish completion or correctness.')
-    st.caption('Documents bundled with each student’s submission are used first. Mock mode fills supported missing inputs; it does not replace matching supplied files. Reports list supplied file references and substitutions separately.')
+    st.caption('Documents bundled with each student’s submission are used first. Reports list supplied files and any test substitutes separately.')
 
     preset = st.selectbox('Assignment requirements', ['Assignment 7: Sentiment and Plot', 'Assignment 8: Reading Difficulty', 'Another assignment / upload checklist'])
     assignment = st.file_uploader('Assignment PDF, text checklist, or saved JSON checklist (optional override)', type=['pdf', 'txt', 'md', 'json'])
@@ -52,27 +52,26 @@ def main():
     archive = st.file_uploader('Canvas submissions ZIP', type=['zip'])
     shared = st.file_uploader('Shared course-files ZIP (optional)', type=['zip'], help='Put instructor helpers at the ZIP root, e.g. readability_tools.py or sentiment_toolkit.py, and retain data/ subfolders. Files are copied into each disposable execution copy. Student files take precedence; conflicts are logged.')
     resources = st.file_uploader('Student-specific files ZIP (optional)', type=['zip'], help='One folder per Canvas student key, e.g. smith_12345/book.txt or smith_12345/helper.py. Files are used only for that student, never shared with classmates.')
-    st.caption('Check with original inputs, or select an explicitly labeled mock smoke test when inputs are missing. Mock success does not verify the original data, helper behavior, or completion.')
+    if native_execution:
+        st.caption('Check with original inputs, or select an explicitly labeled mock smoke test when inputs are missing. Mock success does not verify the original data, helper behavior, or completion.')
     browser_result_upload = None
     if not native_execution:
         with st.expander('Advanced: browser execution report import'):
             browser_result_upload = st.file_uploader('Browser execution results (automatic)', type=['json'])
-    with st.expander('Execution settings'):
-        if native_execution:
+    mock_enabled, mock_fixtures, mock_words = False, None, 18000
+    timeout, mappings_text, consent = 120, '{}', False
+    if native_execution:
+        with st.expander('Execution settings'):
             st.info('Student programs run with this machine’s permissions. Use a disposable environment without sensitive files. Temporary folders and stripped child-process credentials do not provide a security sandbox.')
-        else:
-            st.write('These settings apply to native Python execution. On GitHub Pages, use Run browser checks (with mocks); browser settings and progress are in the diagnostics panel below.')
-        execution_mode = st.selectbox('Execution mode', ['Provided inputs', 'Mock inputs — smoke test only'], disabled=not native_execution)
-        mock_enabled = execution_mode.startswith('Mock')
-        mock_fixtures = None
-        mock_words = 18000
-        if mock_enabled:
-            st.warning('Missing text, CSV/TSV, JSON/JSONL and gzip inputs can be synthesized. Schemas are guesses. Unknown Python helpers need a compatible mock implementation; errors and assertions remain active. Results will be labeled as mock tests, not verified original-data runs.')
-            mock_fixtures = st.file_uploader('Mock-fixtures ZIP (optional: data files or helper test doubles)', type=['zip'], help='Preserve the paths relative to the submission root. Real files and installed modules take precedence. Every copied mock is recorded. Unknown helper APIs are never replaced automatically.')
-            mock_words = st.number_input('Synthetic corpus word target', min_value=100, max_value=200000, value=18000)
-        timeout = st.number_input('Timeout per entrypoint (seconds)', min_value=5, max_value=14400, value=120)
-        mappings_text = st.text_area('Optional exact path mappings (JSON)', '{}', help='Map a submitted literal path to a relative file in the execution copy, e.g. {"/Users/student/book.txt": "book.txt"}. No fuzzy matching, substitute data, or silent code repair is performed.')
-        consent = st.checkbox('Execute student code in this disposable environment', value=False, disabled=not native_execution)
+            execution_mode = st.selectbox('Execution mode', ['Provided inputs', 'Mock inputs — smoke test only'])
+            mock_enabled = execution_mode.startswith('Mock')
+            if mock_enabled:
+                st.warning('Missing text, CSV/TSV, JSON/JSONL and gzip inputs can be synthesized. Schemas are guesses. Unknown Python helpers need a compatible mock implementation; errors and assertions remain active. Results will be labeled as mock tests, not verified original-data runs.')
+                mock_fixtures = st.file_uploader('Mock-fixtures ZIP (optional: data files or helper test doubles)', type=['zip'], help='Preserve the paths relative to the submission root. Real files and installed modules take precedence. Every copied mock is recorded. Unknown helper APIs are never replaced automatically.')
+                mock_words = st.number_input('Synthetic corpus word target', min_value=100, max_value=200000, value=18000)
+            timeout = st.number_input('Timeout per entrypoint (seconds)', min_value=5, max_value=14400, value=120)
+            mappings_text = st.text_area('Optional exact path mappings (JSON)', '{}', help='Map a submitted literal path to a relative file in the execution copy, e.g. {"/Users/student/book.txt": "book.txt"}. No fuzzy matching, substitute data, or silent code repair is performed.')
+            consent = st.checkbox('Execute student code in this disposable environment', value=False)
     try:
         mapping = json.loads(mappings_text)
         if not isinstance(mapping, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()):
@@ -84,9 +83,9 @@ def main():
         st.info('Choose an assignment checklist and upload a Canvas submissions ZIP to begin. Static review does not execute code.')
         return
 
-    browser_run_requested = st.button('Run browser checks (with mocks)', type='primary') if not native_execution else False
+    browser_run_requested = st.button('Run submissions', type='primary') if not native_execution else False
     if not native_execution:
-        st.caption('Mock checks may use synthetic files and supported helper/model-API test doubles. No real AI model is used; every substitution is recorded.')
+        st.caption('Uses supplied files first and automatically fills supported missing files or helpers with test substitutes. Results show what was used. No mode selection is needed.')
     if browser_run_requested:
         st.info('Browser execution started. Results will return to this table automatically. Open browser execution diagnostics below for progress.')
 
@@ -137,7 +136,7 @@ def main():
     if browser_results_applied:
         st.info('Browser execution results are displayed below. These are browser/mock checks, not native marimo validation.')
     elif not native_execution:
-        st.warning('Code has not been run for this review yet. Click Run browser checks (with mocks) to test supported entrypoints; open browser diagnostics below for progress.')
+        st.warning('Code has not been run for this review yet. Click Run submissions to test supported entrypoints; open browser diagnostics below for progress.')
         st.markdown('<a href="#browser-runner" target="_self">Go to browser execution diagnostics ↓</a>', unsafe_allow_html=True)
     counts_placeholder = st.empty()
     run_filter = st.selectbox('Show run outcomes', ['All students','Ran successfully','Run hit an error','Cannot determine','Not tested'])

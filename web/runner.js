@@ -179,7 +179,7 @@ document.addEventListener('change',event=>{
 
 document.addEventListener('click',async event=>{
  const button=event.target.closest('button');
- if(!button||!button.closest('#root')||button.textContent.trim()!=='Run browser checks (with mocks)')return;
+ if(!button||!button.closest('#root')||button.textContent.trim()!=='Run submissions')return;
  copyReviewChecklist();document.getElementById('run-mock').checked=true;
  const details=document.getElementById('browser-runner-details');if(details)details.open=false;
  if(document.getElementById('run-review').disabled)return;
