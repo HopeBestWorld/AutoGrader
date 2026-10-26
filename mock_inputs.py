@@ -42,6 +42,11 @@ def infer_text_hints(work):
         except SyntaxError:continue
         bindings={}
         for n in ast.walk(tree):
+            if isinstance(n,ast.Call):
+                for keyword in n.keywords:
+                    if keyword.arg in ('start_at','end_at'):
+                        value=keyword.value.value if isinstance(keyword.value,ast.Constant) else bindings.get(getattr(keyword.value,'id',''))
+                        add(value,'end_marker' if keyword.arg=='end_at' else 'start_marker')
             if isinstance(n,ast.Assign) and isinstance(n.value,ast.Constant) and isinstance(n.value.value,str):
                 for t in n.targets:
                     if isinstance(t,ast.Name):bindings[t.id]=n.value.value
@@ -107,6 +112,13 @@ def synthetic_rows(columns, count=24):
     return [{column: value(column, i) for column in columns} for i in range(count)]
 
 
+def synthetic_clear_rows(count=500):
+    return [{'id':i,'ID':i,'author':'Carroll' if i%10==0 else f'Synthetic author {i%23}',
+             'title':f'Synthetic reference {i}','year':1800+i%200,'category':'Lit' if i%2 else 'Info',
+             'excerpt':' '.join(TEXT_PARAGRAPHS[j%len(TEXT_PARAGRAPHS)] for j in range(1+i%5)),
+             'difficulty':float(i%31)/5-3} for i in range(count)]
+
+
 def lexicon_vocabulary(work,hints):
     """Synthetic coverage vocabulary only; weights are deterministic test values."""
     text=' '.join(TEXT_PARAGRAPHS)+' '+' '.join(hints['starts']+hints['ends']+hints['phrases'])
@@ -144,6 +156,8 @@ def write_synthetic(path, reader, columns, words, hints=None, vocabulary=None):
         content = synthetic_text(words,hints)
         details = {'format': 'synthetic prose', 'words': len(content.split())}
     elif inner in ('.csv', '.tsv'):
+        if 'clear' in path.stem.lower():
+            rows=synthetic_clear_rows();columns=list(rows[0])
         buffer = io.StringIO()
         writer = csv.DictWriter(buffer, fieldnames=columns, delimiter='\t' if inner == '.tsv' else ',')
         writer.writeheader(); writer.writerows(rows)
@@ -192,9 +206,9 @@ def infer_corpus_size(work, minimum):
     return {'minimum_words':minimum,'effective_words':min(needed,200000),'largest_explicit_passage_index':max(indices) if indices else None,'assumed_words_per_segment':max(sizes),'capped':needed>200000,'scope':'Synthetic capacity hint only; this does not reproduce original text or guarantee its schema/structure.'}
 
 
-def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
+def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False, browser=False):
     """Fill absent inputs only. Never generate Python implementations or edit originals."""
-    from prerequisites import audit_prerequisites, provided_candidates
+    from prerequisites import audit_prerequisites, provided_candidates, sources
     from grader_core import stage_paths
     if not 100 <= words <= 200000:
         raise ValueError('Mock corpus length must be between 100 and 200,000 words')
@@ -218,6 +232,30 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
             shutil.copy2(source, target)
             manifest.append(manifest_entry(target, work, 'UPLOADED MOCK FIXTURE', kind='helper test double' if source.suffix == '.py' else 'data fixture'))
     audit = audit_prerequisites(work)
+    modules={item['module'] for item in audit['modules']}
+    missing={item['module'] for item in audit['modules'] if item['status'].startswith('MISSING')}
+    uses_readability_model=any('load_language_model' in source for _,source in sources(work))
+    readability_fixture='readability_tools' in missing and not (work/'readability_tools.py').exists()
+    dependency_fixtures=[name for name in ('spacy','en_core_web_sm','wordfreq','textstat')
+                         if name in modules and (browser or name in missing) and not (work/(name+'.py')).exists() and not (work/name).exists()]
+    if readability_fixture or dependency_fixtures:
+        templates=Path(__file__).parent/'mock_helpers'
+        for name in ['_readability_nlp']+(['readability_tools'] if readability_fixture else [])+dependency_fixtures:
+            target=work/(name+'.py')
+            if target.exists():continue
+            source=(templates/(name+'.py')).read_text()
+            if name=='readability_tools':source=source.replace('MODEL_APIS_ENABLED = False','MODEL_APIS_ENABLED = '+str(bool(model_apis)))
+            target.write_text(source)
+            manifest.append(manifest_entry(target,work,'BUNDLED MOCK HELPER',kind='readability/NLP API test double',limitations='Heuristic syllables, synthetic dependency trees/tags and fixture frequencies; not the actual course library, trained NLP model or validated readability values.'))
+        if readability_fixture:
+            target=work/'_mock_readability_clear.csv'
+            if not target.exists():
+                rows=synthetic_clear_rows()
+                with target.open('w',newline='') as stream:
+                    writer=csv.DictWriter(stream,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+                manifest.append(manifest_entry(target,work,'AUTOMATIC SYNTHETIC DATA',format='synthetic CLEAR reference',rows=len(rows),schema=list(rows[0]),limitations='Fabricated reference excerpts and labels, not real human difficulty ratings.'))
+            if model_apis and uses_readability_model:
+                manifest.append(manifest_entry(work/'readability_tools.py',work,'BUNDLED MOCK MODEL API',kind='GPT-2 surprisal API test double',limitations='Deterministic synthetic per-word values. No model weights, token probabilities or real inference.'))
     # Known, reviewed test double only. Never synthesize arbitrary helper APIs.
     for item in audit['modules']:
         if item['module']=='sentiment_toolkit' and item['status'].startswith('MISSING'):
@@ -232,6 +270,7 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
             shutil.copy2(Path(__file__).parent/'mock_helpers/transformers.py',target)
             manifest.append(manifest_entry(target,work,'BUNDLED MOCK MODEL API',kind='text-generation chat API test double',limitations='Hash-based synthetic replies. No actual model, prediction quality, inference or network was tested.'))
     audit=audit_prerequisites(work)
+    generated_outputs={str((work/Path(item['source']).parent/item['path']).resolve()) for item in audit.get('generated_outputs',[])}
     hints=infer_text_hints(work)
     sizing=infer_corpus_size(work,words)
     words=sizing['effective_words']
@@ -244,9 +283,32 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
         if item['status'] == 'AVAILABLE':
             continue
         if value.startswith(('http://', 'https://')):
+            if readability_fixture and item.get('reader')=='fetch_url':
+                documents=[p for p in work.rglob('*') if p.is_file() and p.suffix.lower() in ('.txt','.html','.htm')
+                           and not any(word in p.name.lower() for word in ('lexicon','emolex','bingliu','syuzhet','readme','license'))
+                           and not any(m['file']==str(p.relative_to(work)) for m in manifest)]
+                by_hash={hashlib.sha256(p.read_bytes()).hexdigest():p for p in documents}
+                if len(by_hash)==1:
+                    provided=next(iter(by_hash.values()))
+                    mappings[value]=str(provided.relative_to(work))
+                    manifest.append(manifest_entry(provided,work,'MOCK INPUT ALIAS',original=str(provided.relative_to(work)),requested_path=value,
+                                                   reason='Only supplied prose document used in place of the helper URL. Contents unchanged; URL/document identity is an explicit unverified assumption.'))
+                    continue
+                if not by_hash:
+                    target=work/'_mock_inputs'/hashlib.sha256(value.encode()).hexdigest()[:12]/'remote-text.txt'
+                    details=write_synthetic(target,'read_text',columns,words,hints,vocabulary)
+                    if sum(m['origin']=='AUTOMATIC SYNTHETIC DATA' for m in manifest)<64 and sum(m['bytes'] for m in manifest)+target.stat().st_size<=16*1024**2:
+                        manifest.append(manifest_entry(target,work,'AUTOMATIC SYNTHETIC DATA',requested_path=value,source=item['source'],
+                                                       limitations='Synthetic text replaces this reviewed helper URL request. No remote download was tested.',**details))
+                        mappings[value]=str(target.relative_to(work))
+                        continue
+                    target.unlink()
             unresolved.append({**item, 'reason': 'Remote inputs are not intercepted; supply a fixture and explicit path mapping.'})
             continue
         target = (work / Path(item['source']).parent / value).resolve()
+        if str(target) in generated_outputs and not target.is_file():
+            skipped.append({'file':value,'reason':'Submitted code writes this path. Leave absent caches/outputs for the submission to create.'})
+            continue
         external = not target.is_relative_to(work)
         if external:
             filename = value.replace('\\', '/').rsplit('/', 1)[-1]
@@ -289,7 +351,7 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False):
             mappings[value] = str(target.relative_to(work))
     changes = stage_paths(work, mappings) if mappings else []
     for item in audit['modules']:
-        if item['status'].startswith('MISSING'):
+        if item['status'].startswith('MISSING') and not (browser and item['module']=='marimo'):
             unresolved.append({**item, 'reason': 'Unknown Python helpers are not invented. Supply a compatible test double in the mock-fixtures ZIP or the original module.'})
     unresolved.extend({**i, 'reason': 'Dynamic input paths cannot be generated automatically; supply a fixture or exact mapping.'} for i in audit['dynamic_inputs'])
     return {'manifest': manifest, 'provided_files':provided_files,'sizing':sizing, 'text_hints':hints, 'unresolved': unresolved, 'skipped': skipped, 'path_changes': changes,

@@ -208,6 +208,10 @@ def html_report(report):
               '<div class="guide"><strong>Start here</strong><ol><li>Read the run result and its test inputs.</li><li>Check flagged gaps first, then confirm every remaining unreviewed part using the criteria and evidence locations.</li><li>Record completion decisions in the app and export again. This file is a read-only snapshot.</li></ol>',
               f'<p>{h(GUIDANCE)}</p><p>This report opens offline without the app. For full source and attachments, keep the original Canvas ZIP available; it is not included in this report. Share student evidence with the grading team through your usual course channel.</p></div>',
               '<div class="cards">']
+    notes=report.get('validation_notes',[])
+    if isinstance(notes,str):notes=[notes]
+    if notes:
+        chunks.insert(-1,'<aside class="note"><strong>Validation scope</strong><ul>'+''.join('<li>'+h(note)+'</li>' for note in notes)+'</ul></aside>')
     for count, label in [(counts['ran'], 'Ran successfully'), (counts['test_error'], 'Test stopped with error'),
                          (counts['unknown'], 'Run undetermined'), (counts['not_run'], 'Not tested'),
                          (sum(len(summarize_parts(r)['awaiting_review']) for r in rows), 'Parts awaiting review')]:

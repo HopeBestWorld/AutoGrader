@@ -13,7 +13,7 @@ import tempfile
 PACKAGE_NAMES = {'sklearn': 'scikit-learn', 'PIL': 'Pillow', 'bs4': 'beautifulsoup4',
                  'cv2': 'opencv-python', 'yaml': 'PyYAML', 'sentence_transformers': 'sentence-transformers'}
 READERS = {'read_csv', 'read_table', 'read_excel', 'read_parquet', 'read_json',
-           'load_segments', 'load_lexicon', 'load_emolex', 'load_book'}
+           'load_segments', 'load_lexicon', 'load_emolex', 'load_book', 'fetch_url'}
 
 
 def sources(folder):
@@ -73,9 +73,28 @@ def literal_path(node, values):
     return None
 
 
+def output_path(node, values):
+    if not isinstance(node,ast.Call):return None
+    name=node.func.id if isinstance(node.func,ast.Name) else getattr(node.func,'attr','')
+    if name in ('write_text','write_bytes') and isinstance(node.func,ast.Attribute):
+        return literal_path(node.func.value,values)
+    if name in ('to_csv','to_json','to_excel','to_parquet','to_pickle','savefig'):
+        arg=node.args[0] if node.args else next((k.value for k in node.keywords if k.arg in ('path','path_or_buf','path_or_buffer','fname')),None)
+        return literal_path(arg,values)
+    if name=='open':
+        receiver=node.func.value if isinstance(node.func,ast.Attribute) else None
+        path_open=receiver is not None and not (isinstance(receiver,ast.Name) and receiver.id in ('io','builtins'))
+        index=0 if path_open else 1
+        mode=literal_path(node.args[index],values) if len(node.args)>index else None
+        mode=next((literal_path(k.value,values) for k in node.keywords if k.arg=='mode'),mode)
+        if mode and any(c in mode for c in 'wax'):
+            return literal_path(receiver if path_open else node.args[0] if node.args else None,values)
+    return None
+
+
 def audit_prerequisites(folder):
     root = Path(folder).resolve()
-    modules, inputs, models, unresolved = [], [], [], []
+    modules, inputs, models, unresolved, generated = [], [], [], [], []
     for path, source in sources(root):
         try:
             tree = ast.parse(source)
@@ -90,6 +109,8 @@ def audit_prerequisites(folder):
                     if isinstance(target, ast.Name) and value is not None:
                         values[target.id] = value
         for node in ast.walk(tree):
+            output=output_path(node,values)
+            if output is not None:generated.append({'source':relative,'line':node.lineno,'path':output})
             names = []
             if isinstance(node, ast.Import):
                 names = [a.name.split('.')[0] for a in node.names]
@@ -181,6 +202,8 @@ def audit_prerequisites(folder):
                             if isinstance(target,ast.Name):bindings[target.id]=value
             for read in ast.walk(fn):
                 if not isinstance(read,ast.Call):continue
+                output=output_path(read,bindings)
+                if output is not None:generated.append({'source':relative,'line':call.lineno,'path':output})
                 reader=read.func.id if isinstance(read.func,ast.Name) else getattr(read.func,'attr','')
                 receiver=read.func.value if isinstance(read.func,ast.Attribute) else None
                 path_open=reader=='open' and receiver is not None and not (isinstance(receiver,ast.Name) and receiver.id in ('io','builtins'))
@@ -197,7 +220,7 @@ def audit_prerequisites(folder):
                 status='EXTERNAL PATH — SUPPLY FILE AND MAP PATH' if not target.is_relative_to(root) else 'AVAILABLE' if target.is_file() else 'MISSING OR GENERATED AT RUNTIME'
                 inputs.append({'source':relative,'line':call.lineno,'path':value,'reader':call.func.id,'status':status,'action':'Resolved from a literal call into the submitted reader function.'})
     # Some references are optional, conditional or generated. Only execution establishes a blocker.
-    return {'modules': modules, 'inputs': inputs, 'models': models, 'dynamic_inputs': unresolved,
+    return {'modules': modules, 'inputs': inputs, 'models': models, 'dynamic_inputs': unresolved,'generated_outputs':generated,
             'note': 'Potential prerequisites only: conditional imports, generated files, dynamic paths, package versions and network inputs require runtime verification. No student code was executed.'}
 
 
@@ -241,7 +264,18 @@ def stage_provided_inputs(work):
     available = [p for p in work.rglob('*') if p.is_file()]
     records, unresolved, mapping, seen = [], [], {}, set()
     copied_bytes = 0
-    for item in audit_prerequisites(work)['inputs']:
+    inputs=audit_prerequisites(work)['inputs']
+    # Guarded candidate paths can select inputs before a read expression is resolved.
+    # Only an already supplied exact-name file may satisfy these Path literals.
+    for source,code in sources(work):
+        try:tree=ast.parse(code)
+        except SyntaxError:continue
+        for node in ast.walk(tree):
+            if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='Path' and node.args:
+                value=literal_path(node.args[0],{})
+                if value and Path(value).suffix and provided_candidates(available,value.replace('\\','/').rsplit('/',1)[-1])[0]:
+                    inputs.append({'path':value,'source':str(source.relative_to(work)),'line':node.lineno,'reader':'supplied_path_literal'})
+    for item in inputs:
         value = item['path']
         if value.startswith(('http://', 'https://')):
             continue

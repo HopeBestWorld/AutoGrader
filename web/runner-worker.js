@@ -26,6 +26,7 @@ onmessage = async ({data}) => {
       if (/\b(?:spearman|kendall)\b/i.test(imports)) await py.loadPackage('scipy');
       await py.runPythonAsync("await micropip.install('altair')");
       if (/\b(?:from|import)\s+vaderSentiment\b/.test(imports)) await py.runPythonAsync("await micropip.install('vaderSentiment==3.3.2')");
+      if (/\b(?:from|import)\s+pronouncing\b/.test(imports)) await py.runPythonAsync("await micropip.install('pronouncing==0.3.0')");
       await py.loadPackagesFromImports(imports); // Only Pyodide-supported distributions; no guessed PyPI installs.
     }
     const text=await py.runPythonAsync(`

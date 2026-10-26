@@ -1,5 +1,6 @@
 """Explicitly limited in-browser execution; no subprocesses or native marimo runtime."""
 import ast
+import __future__
 import contextlib
 import inspect
 import io
@@ -68,6 +69,8 @@ class DisplayUI:
             raise ValueError('Slider default is outside its declared bounds')
         self.assumptions.append({'widget':'slider','value':selected,'label':str(kwargs.get('label','')),'scope':'Only the declared initial value was tested; interaction was not tested.'})
         return DisplayValue(selected)
+    def number(self,start=None,stop=None,step=None,value=None,**kwargs):
+        return self.slider(start=start,stop=stop,step=step,value=value,**kwargs)
     def tabs(self,items,**kwargs):
         return DisplayTabs(items)
     def __getattr__(self,name):
@@ -80,6 +83,7 @@ class DisplayMarimo(types.ModuleType):
         super().__init__('marimo')
         self.App = CellApp
         self.ui = DisplayUI(model_apis)
+        self.status = DisplayStatus()
     def md(self, text):
         print(str(text)[:4000])
         return text
@@ -94,6 +98,8 @@ class DisplayMarimo(types.ModuleType):
         return value
     def Html(self,value):
         return str(value)
+    def accordion(self,items,**kwargs):
+        return items
     def stop(self,condition,output=None):
         if condition:
             raise UnsupportedBrowserFeature('A marimo stop condition is active: this cell did not finish; no success was inferred')
@@ -101,6 +107,14 @@ class DisplayMarimo(types.ModuleType):
         return Path(os.getcwd())
     def __getattr__(self, name):
         raise UnsupportedBrowserFeature(f'marimo.{name} requires an unsupported interactive/native feature')
+
+
+class DisplayStatus:
+    def spinner(self, *args, **kwargs):
+        return contextlib.nullcontext()
+    def progress_bar(self, iterable, **kwargs):
+        # Preserve iteration and exceptions; only the progress display is adapted.
+        return iter(iterable)
 
 
 class CellApp:
@@ -130,6 +144,7 @@ def run_source(source, filename, model_apis=False):
     # Use the real submitted function bodies and returned dependency names. This
     # adapter deliberately does not claim native marimo graph equivalence.
     cells, exports = [], {}
+    cell_future_flags = {}
     top = []
     for node in tree.body:
         if isinstance(node, ast.If) and '__name__' in ast.unparse(node.test):
@@ -138,6 +153,17 @@ def run_source(source, filename, model_apis=False):
             continue
         top.append(node)
         if isinstance(node, ast.FunctionDef) and any(isinstance(d, (ast.Call,ast.Attribute)) and 'cell' in ast.unparse(d) for d in node.decorator_list):
+            prefix=1 if node.body and isinstance(node.body[0],ast.Expr) and isinstance(node.body[0].value,ast.Constant) and isinstance(node.body[0].value.value,str) else 0
+            future_end=prefix
+            while future_end<len(node.body) and isinstance(node.body[future_end],ast.ImportFrom) and node.body[future_end].module=='__future__':
+                future=node.body[future_end]
+                if any(alias.name!='annotations' for alias in future.names):
+                    raise UnsupportedBrowserFeature('This cell future feature needs native marimo execution')
+                cell_future_flags[id(node)]=__future__.annotations.compiler_flag
+                future_end+=1
+            if future_end>prefix:
+                del node.body[prefix:future_end]
+                if not node.body:node.body=[ast.copy_location(ast.Pass(),node)]
             names=[]
             # Nested helper functions have their own returns, not cell exports.
             returns=[]
@@ -166,7 +192,17 @@ def run_source(source, filename, model_apis=False):
     sys.modules['marimo']=module
     try:
         namespace={'__name__':'browser_notebook','__file__':filename}
-        exec(compile(ast.Module(body=top,type_ignores=[]),filename,'exec'),namespace)
+        compiled=compile(ast.Module(body=top,type_ignores=[]),filename,'exec')
+        if cell_future_flags:
+            # Native marimo compiles cell bodies separately. Keep future-annotation
+            # semantics scoped to the declaring cell, while preserving registration order.
+            flags=0
+            for statement in top:
+                if isinstance(statement,ast.ImportFrom) and statement.module=='__future__':
+                    for alias in statement.names:flags|=getattr(__future__,alias.name).compiler_flag
+                exec(compile(ast.Module(body=[statement],type_ignores=[]),filename,'exec',flags=flags|cell_future_flags.get(id(statement),0),dont_inherit=True),namespace)
+        else:
+            exec(compiled,namespace)
         apps=[a for a in namespace.values() if isinstance(a,CellApp)]
         if len(apps)!=1 or len(apps[0].cells)!=len(cells):
             raise UnsupportedBrowserFeature('Notebook structure is not supported by the browser cell adapter')
@@ -189,10 +225,14 @@ def run_source(source, filename, model_apis=False):
                     if len(names)!=len(result):
                         raise ValueError('Cell return/export count mismatch')
                     values.update(zip(names,result))
+                    namespace.update(zip(names,result))
                 pending.remove(item);executed+=1;progressed=True
             if not progressed:
+                unknown=sorted({name for (fn,_),_ in pending for name,p in inspect.signature(fn).parameters.items() if p.default is p.empty and name not in values and name not in exports})
+                if unknown:raise NameError('Notebook dependencies not defined or exported: '+', '.join(unknown))
                 raise ValueError('Unresolved or cyclic cell dependencies: '+', '.join(str(inspect.signature(i[0][0])) for i in pending))
-        return {'mode':'Browser marimo cell adapter (not native export)', 'cells_executed':executed, 'widget_defaults_tested':module.ui.assumptions}
+        return {'mode':'Browser marimo cell adapter (not native export)', 'cells_executed':executed, 'widget_defaults_tested':module.ui.assumptions,
+                'adapter_assumptions':['Cell-level future annotations were compiled with the cell annotation flag.'] if cell_future_flags else []}
     finally:
         if previous is None: sys.modules.pop('marimo',None)
         else: sys.modules['marimo']=previous
@@ -204,16 +244,18 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
     buffer=io.StringIO(); detail={}; mocks={'manifest':[]}; supplied={'files':[]}; failure_kind=None; exception_type=None; action=None
     with prepared_submission(folder) as (work,_,_):
         original=os.getcwd(); old_path=sys.path[:]; old_home=os.environ.get('HOME');old_backend=os.environ.get('MPLBACKEND')
-        saved_model_modules={}
+        saved_model_modules={}; mock_module_names=set()
         try:
             os.environ['MPLBACKEND']='Agg'
             if mock:
                 os.environ['HOME']=str(work/'_mock_home')
             supplied=stage_provided_inputs(work)
             if mock:
-                mocks=prepare_mock_inputs(work,words=mock_words,model_apis=model_apis)
-            if any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']):
-                saved_model_modules={k:v for k,v in sys.modules.items() if k=='transformers' or k.startswith('transformers.')}
+                mocks=prepare_mock_inputs(work,words=mock_words,model_apis=model_apis,browser=True)
+            mock_module_names={Path(m['file']).stem for m in mocks['manifest'] if m['file'].endswith('.py') and '/' not in m['file']}
+            mock_module_names.update(p.stem for p in work.glob('*.py') if p.stem not in sys.stdlib_module_names)
+            if mock_module_names:
+                saved_model_modules={k:v for k,v in sys.modules.items() if any(k==name or k.startswith(name+'.') for name in mock_module_names)}
                 for name in saved_model_modules:sys.modules.pop(name,None)
             script=work/entry
             os.chdir(script.parent);sys.path.insert(0,str(work));sys.path.insert(0,str(script.parent))
@@ -231,13 +273,20 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
         except BaseException as exc:
             status='BROWSER EXECUTION ERROR'
             exception_type=type(exc).__name__
-            failure_kind='mock_input_or_code_mismatch' if mocks['manifest'] and isinstance(exc,(KeyError,IndexError)) else 'runtime_error'
-            action='Increase synthetic corpus size or supply schema-compatible fixtures; the original data may contain rows or keys absent from mocks.' if failure_kind=='mock_input_or_code_mismatch' else 'Inspect the traceback: a mock run alone cannot establish behavior with original inputs.'
+            frame=exc.__traceback__
+            while frame and frame.tb_next:frame=frame.tb_next
+            unsupported_fixture=isinstance(exc,NotImplementedError) and frame and any(str(work/m['file'])==frame.tb_frame.f_code.co_filename for m in mocks['manifest'] if m['file'].endswith('.py'))
+            failure_kind='unsupported_mock_api' if unsupported_fixture else 'mock_input_or_code_mismatch' if mocks['manifest'] and isinstance(exc,(KeyError,IndexError)) else 'runtime_error'
+            if unsupported_fixture:
+                status='BLOCKED / UNSUPPORTED MOCK API'
+                action='This call exceeds the reviewed fixture contract. Supply the real helper/model or a compatible fixture before retrying.'
+            else:
+                action='Increase synthetic corpus size or supply schema-compatible fixtures; the original data may contain rows or keys absent from mocks.' if failure_kind=='mock_input_or_code_mismatch' else 'Inspect the traceback: a mock run alone cannot establish behavior with original inputs.'
             buffer.write(traceback.format_exc())
         finally:
-            if any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']):
+            if mock_module_names:
                 for name in list(sys.modules):
-                    if name=='transformers' or name.startswith('transformers.'):sys.modules.pop(name,None)
+                    if any(name==module or name.startswith(module+'.') for module in mock_module_names):sys.modules.pop(name,None)
                 sys.modules.update(saved_model_modules)
             os.chdir(original);sys.path[:]=old_path
             if old_backend is None:os.environ.pop('MPLBACKEND',None)

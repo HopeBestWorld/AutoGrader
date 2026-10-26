@@ -46,6 +46,8 @@ def summarize_attempt(result):
         out.update(answer='Unknown — mock text incompatible',reason='The code requires book-specific phrases, markers or chapter headings absent from the synthetic text.',next_step='Supply the matching original text. A larger synthetic corpus will not reproduce book-specific content.')
     elif 'INPUT / CODE MISMATCH' in status or result.get('failure_kind')=='mock_input_or_code_mismatch':
         out.update(answer='Unknown — input/code mismatch',reason=reason or 'A key or index expected by the code is missing from the mock inputs.',next_step='Check the expected keys/indices. Use compatible fixtures or original inputs; the traceback alone cannot identify whether code or mocks are at fault.')
+    elif result.get('failure_kind')=='unsupported_mock_api':
+        out.update(answer='Unknown — mock API unsupported',reason=reason or 'This call exceeds the reviewed fixture contract.',next_step=result.get('action') or 'Supply the original helper/model or a compatible fixture.')
     elif 'BLOCKED' in status or 'UNSUPPORTED' in status or 'UNAVAILABLE' in status:
         if 'ModuleNotFoundError' in log or 'ImportError' in log:
             out.update(answer='Unknown — dependency missing',reason=reason or 'A dependency is missing or unavailable in browser Python.',next_step='Supply the real helper or use a browser-compatible package. If it requires a native runtime, this browser test cannot determine the result.')

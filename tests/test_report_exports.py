@@ -69,6 +69,7 @@ class ReportExportTests(unittest.TestCase):
     def test_html_is_offline_escapes_student_content_and_links_to_unique_parts(self):
         report = fixture()
         attack = '</script><script>alert("student")</script><img src="https://example.com/leak">'
+        report['validation_notes'] = [attack]
         row = report['students'][0]
         row['student'] = attack
         row['requirements'][0]['review_note'] = attack
@@ -83,6 +84,7 @@ class ReportExportTests(unittest.TestCase):
         self.assertIn(attack, soup.get_text())
         self.assertIn('No evidence found does not prove', soup.get_text())
         self.assertIn('archive-hash', soup.get_text())
+        self.assertIn('Validation scope', soup.get_text())
         ids = [tag['id'] for tag in soup.select('[id]')]
         self.assertEqual(len(ids), len(set(ids)))
         for link in soup.select('a[href^="#"]'):
