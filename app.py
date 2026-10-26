@@ -11,6 +11,7 @@ from execution_summary import summarize_student, summarize_batch, summarize_atte
 from report_exports import handoff_files, handoff_zip, summarize_parts
 from execution_diagnostics import recovery_rows
 from native_followup import followup_plan, make_colab_notebook
+from browser_resources import resource_hashes
 from prerequisites import preflight_submission
 from grader_core import (normalize_execution_results, native_execution_available, group_submissions, load_profile, profile_digest,
                          review_folder, run_entrypoint, safe_extract, serializable_report,
@@ -61,7 +62,8 @@ def main():
     if not native_execution:
         with st.expander('Advanced: browser execution report import'):
             browser_result_upload = st.file_uploader('Browser execution results (automatic)', type=['json'])
-        native_result_upload = st.file_uploader('Import native follow-up results (optional)', type=['json'],help='Extract submission-report.json from the native follow-up TA ZIP. The submissions and checklist must match this session.')
+        with st.expander('Optional: import a native-runtime report'):
+            native_result_upload = st.file_uploader('Import native follow-up results (optional)', type=['json'],help='Extract submission-report.json from the native follow-up TA ZIP. The submissions and checklist must match this session.')
     mock_enabled, mock_fixtures, mock_words = False, None, 18000
     timeout, mappings_text, consent = 120, '{}', False
     if native_execution:
@@ -89,7 +91,7 @@ def main():
 
     browser_run_requested = st.button('Run submissions', type='primary') if not native_execution else False
     if not native_execution:
-        st.caption('Uses supplied files first and automatically fills supported missing files or helpers with test substitutes. Results show what was used. No mode selection is needed.')
+        st.caption('Uses supplied files first, fills supported missing inputs with mocks, and applies reviewed browser setup adaptations when needed. Results identify adapted setup and unverified original behavior. No mode selection is needed.')
         st.markdown('<div id="submission-run-progress" role="status" aria-live="polite"></div>',unsafe_allow_html=True)
     if browser_run_requested:
         st.info('Browser execution started. Results will return to this table automatically. Open browser execution diagnostics below for progress.')
@@ -116,6 +118,13 @@ def main():
         st.info('Run static review for this archive and checklist. Changing either requires a new review.')
         return
     rows = state['rows']
+    browser_resources=resource_hashes(shared.getvalue() if shared else None,resources.getvalue() if resources else None)
+    if state.get('execution_source')=='browser' and state.get('browser_resources',resource_hashes())!=browser_resources:
+        for current in rows:
+            current.setdefault('execution_history',[]).extend(current['execution'])
+            current['execution']=[]
+        state['execution_source']='browser inputs changed'
+        state.pop('applied_browser_digest',None)
     browser_results_applied = False
     native_results_applied = False
     browser_result_digest = None
@@ -126,16 +135,21 @@ def main():
             expected_hash = hashlib.sha256(archive.getvalue()).hexdigest()
             if incoming.get('archive_sha256') != expected_hash or incoming.get('assignment_digest') != profile_digest(profile):
                 st.warning('Browser results belong to different submissions or checklist; run the current inputs again.')
+            elif incoming.get('browser_resources',resource_hashes())!=browser_resources:
+                st.warning('Supporting ZIPs changed. Run submissions again to test the current course/student files; earlier results are retained in history.')
             else:
                 lookup = {r['student']:r for r in incoming.get('students',[])}
                 browser_result_digest = hashlib.sha256(browser_result_upload.getvalue()).hexdigest()
                 if browser_result_digest!=state.get('applied_browser_digest'):
                     normalized={key:normalize_execution_results(value.get('execution',[])) for key,value in lookup.items()}
                     for current in rows:
-                        if current['student'] in normalized:current['execution']=normalized[current['student']]
+                        if current['student'] in normalized:
+                            current['execution']=normalized[current['student']]
+                            current['resource_staging']=lookup[current['student']].get('resource_staging',[])
                     state['applied_browser_digest']=browser_result_digest
                     state.pop('native_followup',None)
                     state['execution_source']='browser'
+                    state['browser_resources']=browser_resources
         except (ValueError,TypeError,KeyError) as exc:
             st.warning(f'Cannot read browser execution results: {exc}')
 
@@ -313,13 +327,20 @@ def main():
             outcome = summarize_attempt(result)
             st.write('Run result:', outcome['answer'])
             st.write('Execution runtime:',outcome['runtime'])
+            st.write('Setup scope:',outcome['setup_scope'])
+            if result.get('original_input_attempt'):
+                with st.expander('Supplied-input attempt before synthetic URL fallback'):
+                    previous=result['original_input_attempt']
+                    st.write('The supplied document was unchanged. This earlier attempt did not finish; the current synthetic-input test has a different scope.')
+                    st.write(previous.get('status',''))
+                    st.code(previous.get('log',''),language='text')
             st.write('Supplied files referenced:', ', '.join(outcome['supplied_files']) or 'None matched by the input inventory')
             st.write('Mocks substituted:', '; '.join(outcome['mock_files']) or 'None')
             st.caption('This is a file-reference inventory; a match alone does not prove that every conditional code path read that file.')
             st.write('Reason:', outcome['reason'])
             st.write('Next step:', outcome['next_step'])
             with st.expander('Technical result details'):
-                st.write({k: v for k, v in result.items() if k not in ('log', 'artifact')})
+                st.write({k: v for k, v in result.items() if k not in ('log', 'artifact','original_input_attempt')})
             if result.get('missing_resources'):
                 st.write('Resources to obtain before retrying:')
                 st.dataframe(result['missing_resources'], hide_index=True)
@@ -338,18 +359,19 @@ def main():
         outcome=summarize_student(current)
         if run_filter!='All students' and outcome['category']!=categories[run_filter]: continue
         parts = summarize_parts(current)
-        display_rows.append({'Student':current['student'],'Runs?':outcome['answer'],'Runtime':outcome['runtime'],'Test inputs':outcome['inputs'],'Reason':outcome['reason'],'Next step':outcome['next_step'],
+        display_rows.append({'Student':current['student'],'Runs?':outcome['answer'],'Runtime':outcome['runtime'],'Setup scope':outcome['setup_scope'],'Test inputs':outcome['inputs'],'Reason':outcome['reason'],'Next step':outcome['next_step'],
                              'Supplied files referenced':'; '.join(outcome['supplied_files']) or 'None matched', 'Mocks substituted':'; '.join(outcome['mock_files']) or 'None',
                              'Completion':parts['status'], 'Parts marked complete':'; '.join(parts['reviewed_complete']) or 'None marked',
                              'Parts marked incomplete':'; '.join(parts['reviewed_incomplete']) or 'None marked',
                              'Check first':'; '.join(parts['check_first']) or 'No flagged gaps', 'Parts awaiting review':len(parts['awaiting_review'])})
     table.dataframe(display_rows,hide_index=True)
     counts=summarize_batch(rows)
-    counts_placeholder.info(f"{counts['ran']} ran successfully · {counts['test_error']} hit a test error · {counts['unknown']} cannot be determined · {counts['not_run']} not tested. Success applies only to the tested inputs/runtime.")
+    counts_placeholder.info(f"{counts['ran']} finished {'execution' if native_execution or native_results_applied else 'browser tests'} · {counts['test_error']} hit a test error · {counts['unknown']} cannot be determined · {counts['not_run']} not tested. Success applies only to the tested inputs/runtime; adapted setup and synthetic inputs remain unverified.")
     summary.caption('Candidate evidence is not a completion score. A student is complete only after all applicable parts are reviewed. Run results remain independent of those decisions.')
     report = serializable_report(profile, rows)
     report['runtime_capabilities'] = {'native_execution': native_execution, 'edition': 'native' if native_execution else 'browser execution subset' if browser_results_applied else 'browser review', 'browser_execution':browser_results_applied}
     report['archive_sha256'] = hashlib.sha256(archive.getvalue()).hexdigest()
+    if browser_results_applied:report['browser_resources']=browser_resources
     if native_results_applied:
         report['native_followup']=state['native_followup']
         report['runtime_capabilities']={'edition':'browser results with native follow-up','native_followup':True}
@@ -363,7 +385,7 @@ def main():
         except ValueError as exc:
             native_plan={};st.warning(f'Cannot prepare native follow-up: {exc}')
         if native_plan:
-            with st.expander('Free native Python follow-up with Google Colab'):
+            with st.expander('Optional: native Python validation with Google Colab'):
                 st.write('Download the notebook, open Google Colab → File → Upload notebook, and follow its four cells. Upload the original Canvas ZIP there, review the settings, then enable execution. Free CPU runtimes require Google sign-in and have availability limits. No paid AI or GPU is needed.')
                 st.caption('The notebook includes your current report and checker source. The app sends nothing to Google automatically. Keep the notebook with the grading team and use a fresh Colab runtime without mounted Drive files or secrets.')
                 st.download_button('Download native follow-up notebook',make_colab_notebook(report),'AutoGrader-native-followup.ipynb','application/x-ipynb+json')

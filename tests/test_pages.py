@@ -53,6 +53,31 @@ class PagesTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'EXECUTION UNAVAILABLE IN BROWSER'):
                 run_entrypoint('/nonexistent','main.py')
 
+    def test_supporting_file_change_invalidates_browser_execution_only(self):
+        script=UI.replace("    return Upload(buf.getvalue()) if label == 'Canvas submissions ZIP' else None",'''    import hashlib,json
+    from grader_core import load_profile,profile_digest
+    from pathlib import Path
+    if label=='Shared course-files ZIP (optional)' and st.session_state.get('shared'):
+        resources=io.BytesIO()
+        with zipfile.ZipFile(resources,'w') as z:z.writestr('helper.py','VALUE=42')
+        return Upload(resources.getvalue())
+    if label=='Browser execution results (automatic)' and st.session_state.get('browser'):
+        profile=load_profile((Path(app.__file__).parent/'assignments/assignment-7.json').read_bytes(),'a.json')
+        payload={'archive_sha256':hashlib.sha256(buf.getvalue()).hexdigest(),'assignment_digest':profile_digest(profile),'students':[{'student':'demo_123','execution':[{'file':'main.py','status':'BROWSER RUN SUCCEEDED'}]}]}
+        return Upload(json.dumps(payload).encode())
+    return Upload(buf.getvalue()) if label=='Canvas submissions ZIP' else None''')
+        script=script.replace('app.main()',"from unittest.mock import patch\nwith patch('app.native_execution_available',return_value=False):\n    app.main()")
+        at=AppTest.from_string(script).run(timeout=30)
+        next(b for b in at.button if b.label.startswith('Review submissions')).click().run(timeout=30)
+        at.session_state['browser']=True;at.run(timeout=30)
+        next(s for s in at.selectbox if s.label=='Completion decision').select('Complete').run()
+        at.session_state['shared']=True;at.run(timeout=30)
+        self.assertFalse(at.exception)
+        row=at.session_state['report']['rows'][0]
+        self.assertEqual(row['execution'],[])
+        self.assertEqual(row['execution_history'][0]['status'],'BROWSER RUN SUCCEEDED')
+        self.assertEqual(row['requirements'][0]['review'],'Complete')
+
     def test_browser_review_remains_available_but_run_button_disabled(self):
         script=UI.replace('app.main()',"from unittest.mock import patch\nwith patch('app.native_execution_available', return_value=False):\n    app.main()")
         at=AppTest.from_string(script).run(timeout=30)

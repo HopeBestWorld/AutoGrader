@@ -266,10 +266,11 @@ def run_source(source, filename, model_apis=False):
         else: sys.modules['marimo']=previous
 
 
-def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=False):
+def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=False, setup_adaptations=True, force_synthetic_urls=False):
     from prerequisites import prepared_submission, recovery_requirements, stage_provided_inputs
     from mock_inputs import prepare_mock_inputs
-    buffer=io.StringIO(); detail={}; mocks={'manifest':[]}; supplied={'files':[]}; failure_kind=None; exception_type=None; action=None
+    from browser_setup import browser_setup,setup_requirements,UnsupportedBrowserSetup
+    buffer=io.StringIO(); detail={}; mocks={'manifest':[]}; supplied={'files':[]}; failure_kind=None; exception_type=None; action=None; adaptations=[]
     with prepared_submission(folder) as (work,_,_):
         original=os.getcwd(); old_path=sys.path[:]; old_home=os.environ.get('HOME');old_backend=os.environ.get('MPLBACKEND')
         saved_model_modules={}; mock_module_names=set()
@@ -279,7 +280,7 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
                 os.environ['HOME']=str(work/'_mock_home')
             supplied=stage_provided_inputs(work)
             if mock:
-                mocks=prepare_mock_inputs(work,words=mock_words,model_apis=model_apis,browser=True)
+                mocks=prepare_mock_inputs(work,words=mock_words,model_apis=model_apis,browser=True,force_synthetic_urls=force_synthetic_urls)
             mock_module_names={Path(m['file']).stem for m in mocks['manifest'] if m['file'].endswith('.py') and '/' not in m['file']}
             mock_module_names.update(p.stem for p in work.glob('*.py') if p.stem not in sys.stdlib_module_names)
             if mock_module_names:
@@ -290,12 +291,14 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
             with contextlib.redirect_stdout(buffer),contextlib.redirect_stderr(buffer):
                 if script.suffix=='.ipynb':
                     raise UnsupportedBrowserFeature('Jupyter execution requires native kernel support')
-                detail=run_source(script.read_text(encoding='utf-8-sig'),str(script),model_apis=any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']))
+                source=script.read_text(encoding='utf-8-sig')
+                with browser_setup(work,setup_requirements(source),mocks['manifest'],enabled=mock and setup_adaptations) as adaptations:
+                    detail=run_source(source,str(script),model_apis=any(m.get('origin')=='BUNDLED MOCK MODEL API' for m in mocks['manifest']))
             status='BROWSER RUN SUCCEEDED'
-        except (UnsupportedBrowserFeature,ModuleNotFoundError,ImportError,FileNotFoundError,OSError) as exc:
+        except (UnsupportedBrowserFeature,UnsupportedBrowserSetup,ModuleNotFoundError,ImportError,FileNotFoundError,OSError) as exc:
             status='BLOCKED / UNSUPPORTED IN BROWSER'
             exception_type=type(exc).__name__
-            failure_kind='unsupported_browser_feature' if isinstance(exc,UnsupportedBrowserFeature) else 'missing_dependency' if isinstance(exc,(ImportError,ModuleNotFoundError)) else 'missing_input_or_environment'
+            failure_kind='unsupported_browser_feature' if isinstance(exc,(UnsupportedBrowserFeature,UnsupportedBrowserSetup)) else 'missing_dependency' if isinstance(exc,(ImportError,ModuleNotFoundError)) else 'missing_input_or_environment'
             action='Inspect the exception. Supply the missing resource or use a compatible browser dependency; this is not a demonstrated student-code failure.'
             buffer.write(traceback.format_exc())
         except BaseException as exc:
@@ -328,6 +331,15 @@ def run_browser_entry(folder, entry, mock=False, mock_words=18000, model_apis=Fa
         status='INPUT / CODE MISMATCH — INCONCLUSIVE'
     if mock and mocks['manifest']:
         status='MOCK '+status+' — ORIGINAL INPUTS UNVERIFIED'
-    return {'file':entry,'status':status, 'failure_kind':failure_kind,'retryable':failure_kind=='browser_resource_limit','exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'supplied_inputs':supplied, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
+    result={'file':entry,'status':status, 'failure_kind':failure_kind,'retryable':failure_kind=='browser_resource_limit','exception_type':exception_type,'action':action,'mock_words':mock_words,'log':buffer.getvalue()[-2000000:], 'mocks':mocks, 'supplied_inputs':supplied, 'mock_requested':mock, 'mock_used':bool(mocks['manifest']),
+            'browser_adaptations':adaptations,'original_native_setup_verified':False if adaptations else None,
             'missing_resources':recovery_requirements(buffer.getvalue()) if status.startswith('BLOCKED') or 'BLOCKED' in status else [],
             'mock_home_redirected':mock, 'model_api_mock_requested':model_apis, 'scope':'Browser-compatible execution only; not native Python/notebook equivalence.',**detail}
+    url_alias=any(m.get('origin')=='MOCK INPUT ALIAS' and str(m.get('requested_path','')).startswith(('http://','https://')) for m in mocks['manifest'])
+    if mock and setup_adaptations and not force_synthetic_urls and url_alias and exception_type=='ValueError' and any(text in result['log'] for text in ('is not in list','substring not found','Start marker not found','End marker not found')):
+        result.update(failure_kind='mock_input_or_code_mismatch',status='MOCK INPUT / CODE MISMATCH — INCONCLUSIVE')
+        retried=run_browser_entry(folder,entry,mock,mock_words,model_apis,setup_adaptations,force_synthetic_urls=True)
+        retried['original_input_attempt']=result
+        retried['synthetic_url_fallback']=True
+        return retried
+    return result

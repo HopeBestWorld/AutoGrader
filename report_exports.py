@@ -97,7 +97,7 @@ def overview_rows(report):
         run = summarize_student(student)
         row = {'Assignment': report.get('assignment', {}).get('title', 'Assignment'),
                'Exported at (UTC)': report.get('generated_at', 'Not recorded'),
-               'Student': student['student'], 'Runs?': run['answer'], 'Execution runtime':run['runtime'], 'Test inputs': run['inputs'],
+               'Student': student['student'], 'Runs?': run['answer'], 'Execution runtime':run['runtime'], 'Setup scope':run['setup_scope'], 'Setup adaptations':'; '.join(run['setup_adaptations']) or 'None', 'Test inputs': run['inputs'],
                'Supplied files referenced': '; '.join(run['supplied_files']) or 'None matched',
                'Mocks substituted': '; '.join(run['mock_files']) or 'None',
                'Run reason': run['reason'], 'Run next step': run['next_step'], 'Completion': summary['status'],
@@ -126,7 +126,7 @@ def checklist_rows(report):
                 'Student': student['student'], 'Runs?': run['answer'], 'Test inputs': run['inputs'],
                 'Supplied files referenced': '; '.join(run['supplied_files']) or 'None matched',
                 'Mocks substituted': '; '.join(run['mock_files']) or 'None',
-                'Execution runtime':run['runtime'],'Part ID': summary['id'], 'Assignment part': summary['title'],
+                'Execution runtime':run['runtime'],'Setup scope':run['setup_scope'],'Part ID': summary['id'], 'Assignment part': summary['title'],
                 'Status': summary['status'], 'Reviewer decision': summary['review_decision'],
                 'Automatic evidence': summary['automatic_evidence'], 'What to check': summary['next_step'],
                 'Missing answer types': '; '.join(summary['missing_evidence_types']),
@@ -232,7 +232,7 @@ def html_report(report):
                  'runissue': run['category'] != 'ran', 'complete': summary['status'] == 'Complete (reviewed)'}
         attrs = ' '.join(f'data-{key}="{"yes" if value else "no"}"' for key, value in flags.items())
         chunks.append(f'<section class="student" id="student-{index}" data-name="{h(row["student"].lower())}" {attrs}><h3>{h(row["student"])}</h3><p><strong>Runs? {h(run["answer"])}</strong><br>Test inputs: {h(run["inputs"])}<br>{h(run["reason"])}<br>Run next step: {h(run["next_step"])}</p><p><strong>Completion: {h(summary["status"])}</strong></p>')
-        chunks.append(f'<p><strong>Execution runtime:</strong> {h(run["runtime"])}<br><strong>Supplied files referenced:</strong> {h("; ".join(run["supplied_files"]) or "None matched by the input inventory")}<br><strong>Mocks substituted:</strong> {h("; ".join(run["mock_files"]) or "None")}</p><p class="muted">Matched references describe files available to the test; they do not prove every file was read. Supplied documents can be used together with mock helpers or lexicons.</p>')
+        chunks.append(f'<p><strong>Execution runtime:</strong> {h(run["runtime"])}<br><strong>Setup scope:</strong> {h(run["setup_scope"])}<br><strong>Supplied files referenced:</strong> {h("; ".join(run["supplied_files"]) or "None matched by the input inventory")}<br><strong>Mocks substituted:</strong> {h("; ".join(run["mock_files"]) or "None")}</p><p class="muted">Matched references describe files available to the test; they do not prove every file was read. Supplied documents can be used together with mock helpers or lexicons.</p>')
         from execution_diagnostics import recovery_rows
         recovery=recovery_rows({'students':[row]})
         if recovery:
@@ -273,6 +273,9 @@ def html_report(report):
                 chunks.append(f'<h4>{h(result.get("file") or "(no entrypoint)")}</h4><p>{h(outcome["answer"])}<br>{h(result.get("status", ""))}</p><pre>{h(log[-20000:])}</pre>')
                 if len(log) > 20000:
                     chunks.append('<p>Last 20,000 characters shown; see submission-report.json for the retained log.</p>')
+                if result.get('original_input_attempt'):
+                    previous=result['original_input_attempt']
+                    chunks.append('<details><summary>Supplied-input attempt before synthetic URL fallback</summary><p>The original supplied document was unchanged. This earlier attempt did not finish; the current synthetic-input test has a different scope.</p><p>'+h(previous.get('status',''))+'</p><pre>'+h(str(previous.get('log',''))[-20000:])+'</pre></details>')
             chunks.append('</details>')
         if row.get('execution_history'):
             chunks.append('<details class="part"><summary>Earlier execution attempts (retained history)</summary><p>These attempts are retained for comparison. The class overview summarizes the current active results.</p>')

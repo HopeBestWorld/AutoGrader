@@ -33,6 +33,7 @@ def summarize_attempt(result):
     elif native_errors:error,detail='Notebook cell error',native_errors[0]
     reason=(error.rsplit('.',1)[-1]+': '+detail).strip(': ')[:350] if error else ''
     runtime=result.get('runtime') or ('Browser Python' if 'BROWSER' in status or 'Browser' in str(result.get('mode','')) else 'Native Python' if result.get('mode') in ('Python script','Native marimo HTML export','Jupyter execution') else 'Not recorded')
+    adaptations=result.get('browser_adaptations') or []
     out={'answer':'Unknown','category':'unknown','inputs':inputs,'runtime':runtime,'reason':reason,'next_step':'Inspect the execution log.','original_inputs_verified':False,
          'uses_mocks':mock, **inventory}
     if 'RUN SUCCEEDED' in status or 'RAN SUCCESSFULLY' in status or 'SMOKE TEST PASSED' in status:
@@ -86,6 +87,15 @@ def summarize_attempt(result):
             out.update(answer='Unknown — browser limitation',reason=reason or 'The browser could not provide a required runtime feature.',next_step='This requires a supported browser API or native Python execution. Do not count it as failed student code.')
     elif 'ERROR' in status or 'FAILED' in status or 'SYNTAX' in status:
         out.update(answer='Error — mock test stopped' if mock else 'Error — test stopped',category='test_error',reason=reason or 'The tested entrypoint raised an error.',next_step='Inspect the traceback and reproduce with matching inputs. A mock-run error does not prove original-data failure.' if mock else 'Inspect the traceback for this tested input and runtime.')
+    out['setup_adaptations']=[item.get('operation','Browser setup') for item in adaptations]
+    out['setup_scope']='Adapted — native setup unverified' if adaptations else 'No setup adaptation recorded'
+    if adaptations and out['category']=='ran':
+        out.update(answer='Yes — adapted browser smoke test',reason='The application code finished with recorded browser setup substitutions. Native package installation, model download or system SSL behavior remains unverified.',
+                   next_step='Review the setup substitutions and input mocks. This does not establish that the unchanged native program or original setup runs.')
+    if result.get('synthetic_url_fallback') and out['category']=='ran':
+        out['answer']='Yes — adapted browser smoke test' if adaptations else 'Yes — synthetic URL smoke test'
+        out['reason']='A supplied-document URL alias could not satisfy the code’s text markers. The application finished on a fresh synthetic URL-input test; the earlier attempt is retained.'
+        out['next_step']='Inspect original_input_attempt and the synthetic input manifest. The supplied document path and original native setup remain unverified.'
     return out
 
 
@@ -106,6 +116,8 @@ def summarize_student(row):
         chosen['reason']=f'All {len(attempts)} recorded attempts finished. Results apply only to their tested inputs/runtime.'
     chosen['inputs']='; '.join(dict.fromkeys(a['inputs'] for a in attempts))
     chosen['runtime']='; '.join(dict.fromkeys(a['runtime'] for a in attempts))
+    chosen['setup_adaptations']=list(dict.fromkeys(value for a in attempts for value in a['setup_adaptations']))
+    chosen['setup_scope']='Adapted — native setup unverified' if chosen['setup_adaptations'] else 'No setup adaptation recorded'
     chosen['uses_mocks']=any(a['uses_mocks'] for a in attempts)
     for key in ('supplied_files','mock_files'):
         chosen[key]=list(dict.fromkeys(value for a in attempts for value in a[key]))

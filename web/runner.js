@@ -3,7 +3,10 @@ const panel=document.getElementById('browser-runner');
 panel.innerHTML=`<h2>Check submissions — free browser execution</h2>
 <p>Upload a Canvas ZIP and assignment instructions. No AI or account is required. Supported Python code runs in a fresh browser worker. Native packages, Jupyter kernels, interactive notebook features and unknown helper APIs may be unsupported.</p>
 <p>Each student’s bundled documents are used first. Mocks fill supported missing inputs. Supplied file references and substitutions are listed separately in the TA report.</p>
+<p>Reviewed package/model setup and system SSL calls can use labeled browser adaptations. These test application code; the original native setup remains unverified. A mismatched supplied URL-document alias may retry once with a separate synthetic input, retaining the earlier attempt.</p>
 <label>Submissions ZIP <input id="run-zip" type="file" accept=".zip"></label>
+<label>Shared course-files ZIP (optional) <input id="run-shared" type="file" accept=".zip"></label>
+<label>Student-specific files ZIP (optional) <input id="run-resources" type="file" accept=".zip"></label>
 <label>Assignment instructions <input id="run-instructions" type="file" accept=".pdf,.txt,.md,.json"></label>
 <label>Fallback checklist <select id="run-preset"><option value="7">Assignment 7</option><option value="8">Assignment 8</option></select></label>
 <label><input id="run-mock" type="checkbox" checked>Generate missing supported data files for mock smoke tests (original inputs unverified)</label>
@@ -83,7 +86,7 @@ function render(){
  }
  report.execution_counts={ran:0,test_error:0,unknown:0,not_run:0};for(const row of report.students)report.execution_counts[row.run_summary.category]++;updateRetryButton();
 }
-for(const id of ['run-zip','run-instructions','run-preset'])document.getElementById(id).addEventListener('change',()=>{inputVersion++;report=null;studentArchives=null;updateRetryButton();document.getElementById('run-code').disabled=true;document.getElementById('run-download').disabled=true;document.getElementById('run-handoff').disabled=true;status('Inputs changed. Click Run submissions to check the current files.');});
+for(const id of ['run-zip','run-shared','run-resources','run-instructions','run-preset'])document.getElementById(id).addEventListener('change',()=>{inputVersion++;report=null;studentArchives=null;updateRetryButton();document.getElementById('run-code').disabled=true;document.getElementById('run-download').disabled=true;document.getElementById('run-handoff').disabled=true;status('Inputs changed. Click Run submissions to check the current files.');});
 document.getElementById('run-review').onclick=async()=>{
  const file=document.getElementById('run-zip').files[0],instructions=document.getElementById('run-instructions').files[0];
  if(!file){status('Choose a submissions ZIP.');return;}
@@ -91,7 +94,7 @@ document.getElementById('run-review').onclick=async()=>{
  const version=inputVersion;activeReview=true;updateRetryButton();
  const button=document.getElementById('run-review');button.disabled=true;document.getElementById('run-code').disabled=true;
  try{
-  inputs={archive:await encoded(file),instructions:await encoded(instructions),instructions_name:instructions?.name,preset:document.getElementById('run-preset').value};
+  inputs={archive:await encoded(file),shared_archive:await encoded(document.getElementById('run-shared').files[0]),student_resources_archive:await encoded(document.getElementById('run-resources').files[0]),instructions:await encoded(instructions),instructions_name:instructions?.name,preset:document.getElementById('run-preset').value};
   status('Loading browser Python and extracting assignment parts…');
   const result=await job({mode:'review'});
   if(!result.students)throw Error(result.log||'Review did not complete');
@@ -188,7 +191,7 @@ function copyReviewChecklist() {
 }
 document.addEventListener('change',event=>{
  const input=event.target;
- if(!(input instanceof HTMLInputElement)||input.type!=='file'||!input.files.length)return;
+ if(!(input instanceof HTMLInputElement)||input.type!=='file')return;
  const uploader=input.closest('#root [data-testid="stFileUploader"]');
  if(!uploader)return;
  const label=uploader.textContent;
@@ -197,12 +200,23 @@ document.addEventListener('change',event=>{
   status('ZIP ready. Click Run submissions to begin.');
  } else if(label.includes('Assignment PDF, text checklist')) {
   mirrorUpload('run-instructions',input.files);
+ } else if(label.includes('Shared course-files ZIP')) {
+  mirrorUpload('run-shared',input.files);
+ } else if(label.includes('Student-specific files ZIP')) {
+  mirrorUpload('run-resources',input.files);
  }
 },true);
 
 document.addEventListener('click',async event=>{
  const button=event.target.closest('button');
  if(!button||!button.closest('#root'))return;
+ const uploader=button.closest('[data-testid="stFileUploader"]')||button.closest('[data-testid="stElementContainer"]');
+ if(uploader&&event.target.closest('[data-testid="stFileUploaderDeleteBtn"]')) {
+  const text=uploader.textContent;
+  if(text.includes('Shared course-files ZIP'))mirrorUpload('run-shared',[]);
+  if(text.includes('Student-specific files ZIP'))mirrorUpload('run-resources',[]);
+  if(text.includes('Canvas submissions ZIP'))mirrorUpload('run-zip',[]);
+ }
  const label=button.textContent.trim();
  if(!['Run submissions','Retry interrupted runs'].includes(label))return;
  if(activeReview||activeExecution){event.preventDefault();event.stopImmediatePropagation();return;}
@@ -216,7 +230,7 @@ document.addEventListener('click',async event=>{
    }
    if(!previous){status('Run submissions first to prepare the execution files.');return;}
    copyReviewChecklist();await document.getElementById('run-review').onclick();
-   if(!report||report.archive_sha256!==previous.archive_sha256||report.assignment_digest!==previous.assignment_digest){status('Previous results belong to different inputs. Run the current submissions again.');return;}
+   if(!report||report.archive_sha256!==previous.archive_sha256||report.assignment_digest!==previous.assignment_digest||JSON.stringify(report.browser_resources)!==JSON.stringify(previous.browser_resources||{shared_zip_sha256:null,student_resources_sha256:null})){status('Previous results belong to different inputs or supporting files. Run the current submissions again.');return;}
    const prior=new Map(previous.students.map(row=>[row.student,row]));
    for(const row of report.students)row.execution=prior.get(row.student)?.execution||[];
   }

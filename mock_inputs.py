@@ -45,6 +45,7 @@ def infer_text_hints(work):
     for _,source in sources(work):
         try:tree=ast.parse(source)
         except SyntaxError:continue
+        parents={id(child):node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
         bindings={}
         for n in ast.walk(tree):
             if isinstance(n,ast.Call):
@@ -61,7 +62,13 @@ def infer_text_hints(work):
             if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr in ('index','find','split') and n.args:
                 arg=n.args[0]
                 value=arg.value if isinstance(arg,ast.Constant) else bindings.get(arg.id) if isinstance(arg,ast.Name) else None
-                if isinstance(value,str) and (len(value)>12 or re.search('start|end|marker',str(getattr(arg,'id','')),re.I)):add(value,getattr(arg,'id',''))
+                if isinstance(value,str) and (len(value)>12 or re.search('start|end|marker',str(getattr(arg,'id','')),re.I)):
+                    where=getattr(arg,'id','')
+                    parent=parents.get(id(n))
+                    if isinstance(parent,ast.Assign):
+                        for target in parent.targets:
+                            if isinstance(target,ast.Name) and re.fullmatch(r'(start|end)(?:_\w+)?',target.id,re.I):where=target.id.split('_')[0].lower()+'_marker'
+                    add(value,where)
             if isinstance(n,ast.Assign):
                 for t in n.targets:
                     if isinstance(t,ast.Name) and re.search(r'start_marker|end_marker|start_text|end_text',t.id,re.I):add(bindings.get(t.id),t.id)
@@ -195,6 +202,8 @@ def infer_corpus_size(work, minimum):
             candidates=[]
             if isinstance(node,ast.Subscript) and isinstance(node.value,ast.Attribute) and node.value.attr in ('loc','iloc'):
                 candidates=[node.slice.elts[0] if isinstance(node.slice,ast.Tuple) else node.slice]
+            elif isinstance(node,ast.Subscript) and isinstance(node.value,ast.Name) and node.value.id.lstrip('_') in ('passages','segments','chunks','docs'):
+                candidates=[node.slice]
             if isinstance(node,ast.Call):
                 name=node.func.id if isinstance(node.func,ast.Name) else getattr(node.func,'attr','')
                 if re.search(r'passage|evidence',name,re.I) and node.args:candidates.append(node.args[0])
@@ -206,7 +215,7 @@ def infer_corpus_size(work, minimum):
     return {'minimum_words':minimum,'effective_words':min(needed,200000),'largest_explicit_passage_index':max(indices) if indices else None,'assumed_words_per_segment':max(sizes),'capped':needed>200000,'scope':'Synthetic capacity hint only; this does not reproduce original text or guarantee its schema/structure.'}
 
 
-def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False, browser=False):
+def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False, browser=False, force_synthetic_urls=False):
     """Fill absent inputs only. Never generate Python implementations or edit originals."""
     from prerequisites import audit_prerequisites, provided_candidates, sources
     from grader_core import stage_paths
@@ -233,6 +242,11 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False, brow
             manifest.append(manifest_entry(target, work, 'UPLOADED MOCK FIXTURE', kind='helper test double' if source.suffix == '.py' else 'data fixture'))
     audit = audit_prerequisites(work)
     modules={item['module'] for item in audit['modules']}
+    if browser:
+        from browser_setup import setup_requirements
+        for _,source in sources(work):
+            setup=setup_requirements(source)
+            modules.update(name for name in setup['packages']+setup['models'] if name in ('spacy','en_core_web_sm'))
     missing={item['module'] for item in audit['modules'] if item['status'].startswith('MISSING')}
     uses_readability_model=any('load_language_model' in source for _,source in sources(work))
     readability_fixture='readability_tools' in missing and not (work/'readability_tools.py').exists()
@@ -291,18 +305,19 @@ def prepare_mock_inputs(work, fixtures=None, words=18000, model_apis=False, brow
                            and not any(word in p.name.lower() for word in ('lexicon','emolex','bingliu','syuzhet','readme','license'))
                            and not any(m['file']==str(p.relative_to(work)) for m in manifest)]
                 by_hash={hashlib.sha256(p.read_bytes()).hexdigest():p for p in documents}
-                if len(by_hash)==1:
+                if len(by_hash)==1 and not force_synthetic_urls:
                     provided=next(iter(by_hash.values()))
                     mappings[value]=str(provided.relative_to(work))
                     manifest.append(manifest_entry(provided,work,'MOCK INPUT ALIAS',original=str(provided.relative_to(work)),requested_path=value,
                                                    reason='Only supplied prose document used in place of the helper URL. Contents unchanged; URL/document identity is an explicit unverified assumption.'))
                     continue
-                if not by_hash:
+                if not by_hash or force_synthetic_urls:
                     target=work/'_mock_inputs'/hashlib.sha256(value.encode()).hexdigest()[:12]/'remote-text.txt'
                     details=write_synthetic(target,'read_text',columns,words,hints,vocabulary)
                     if sum(m['origin']=='AUTOMATIC SYNTHETIC DATA' for m in manifest)<64 and sum(m['bytes'] for m in manifest)+target.stat().st_size<=16*1024**2:
                         manifest.append(manifest_entry(target,work,'AUTOMATIC SYNTHETIC DATA',requested_path=value,source=item['source'],
-                                                       limitations='Synthetic text replaces this reviewed helper URL request. No remote download was tested.',**details))
+                                                       limitations='Synthetic text replaces this reviewed helper URL request. No remote download was tested.',
+                                                       fallback_after_supplied_alias=bool(by_hash),**details))
                         mappings[value]=str(target.relative_to(work))
                         continue
                     target.unlink()

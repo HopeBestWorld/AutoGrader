@@ -31,6 +31,18 @@ This repository includes a **Stlite browser edition**, using the same approach a
 
 **Execution options:** the Pages app uses a browser worker to execute supported Python code, including a limited marimo adapter and mock inputs. Its Streamlit button starts that same runner and imports the results. Full native marimo/Jupyter execution and packages requiring native processes need the [native Streamlit edition](#start-the-native-streamlit-edition); its separate native execution controls are disabled on Pages. Browser limitations are reported as undetermined outcomes rather than student failures.
 
+### Stay entirely in GitHub Pages
+
+Click **Run submissions** to perform supported browser smoke tests without downloading a Colab notebook, installing local software or using a paid service. Shared course-files and student-specific ZIPs in the main app are also staged into browser execution copies. Student files take precedence, followed by personal resources, then shared files. Personal resources require one folder per exact Canvas student key. Supporting files are added after evidence review, so instructor helpers are not counted as student answers. Changing a supporting ZIP invalidates the previous browser execution results; review decisions remain intact.
+
+With automatic mocks enabled, recognized package/model setup calls can use **labeled browser adaptations**. The supported calls are `subprocess.check_call([sys.executable, '-m', 'pip', 'install', ...])` for plain names from `numpy`, `pandas`, `altair`, `pronouncing`, and `spacy`, plus the exact spaCy `download en_core_web_sm` command. The adapter checks available modules and the reviewed model fixture. Native installers and model downloads do not run. Unknown commands, flags and APIs remain unsupported.
+
+The reviewed `truststore.inject_into_ssl()` setup double records the call without performing native system SSL injection. It changes no SSL classes, trust roots or certificate-validation settings. Other `truststore` APIs remain unsupported. The result says **Yes — adapted browser smoke test**, with **Setup scope: Adapted — native setup unverified**. This establishes that the tested application body finished with the substitutions, not that the unchanged native setup works.
+
+Supplied documents are tried first. If a supplied-document alias for the reviewed `readability_tools.fetch_url` API fails a text-marker lookup, the app can retry once in a fresh execution copy with a separate synthetic URL-input fixture. Literal text boundaries and bounded passage indices can shape fixtures; expected computation outputs are never copied. The supplied document and its earlier failed/inconclusive attempt are retained unchanged in `original_input_attempt`. The result explicitly identifies the synthetic-input test. Assertions and unrelated failures do not trigger this fallback.
+
+Every detected submission can receive an execution result, including genuine errors and unsupported cases. Undefined variables, invalid logic and arbitrary native-only operations do not become successful runs. Colab/native validation is an optional route for checking unchanged native behavior; it is not required for these adapted browser tests.
+
 ### Free browser execution and no-AI assignment checks
 
 Uploads made in the Streamlit review panel are also copied to the execution panel with the current checklist, avoiding duplicate uploads. The review-only table now says NOT RUN rather than execution unavailable; it is not an execution report. Synthetic input generation is selected by default in the execution panel and can be unchecked. Actual missing helper modules/files are listed in each blocked execution result.
@@ -194,7 +206,7 @@ Several recorded attempts are summarized conservatively: one successful attempt 
 
 Under **How to check the remaining submissions**, the app lists the source file, cell/line, unresolved declared variables and native-only calls. These are static hints. Generated marimo signatures can contain stale or conditional arguments: the updated browser adapter leaves absent names unbound and reports an error only if the tested cell body reads them. No placeholder values are injected. If a required name is actually read before it is defined, obtain a corrected submission with the right definition/export and rerun the new ZIP; adding data files does not create Python variables.
 
-For operating-system processes, package-install commands or system SSL configuration, use **Free native Python follow-up with Google Colab**:
+For optional validation of unchanged native operating-system processes, package-install commands or system SSL configuration, use **Optional: native Python validation with Google Colab**:
 
 1. Download **native follow-up notebook**, open [Google Colab](https://colab.research.google.com/), and choose **File → Upload notebook**.
 2. Run **Install checker**, then **Upload files**. Upload the same original Canvas submissions ZIP. Optional instructor course-files and student-resource ZIPs can be uploaded together.

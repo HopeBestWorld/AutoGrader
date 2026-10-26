@@ -62,9 +62,9 @@ def inspect_source(source, filename):
         if not isinstance(node,ast.Call):continue
         name=qualified(node.func)
         if name.startswith('subprocess.') or name in ('os.system','os.fork','os.execv','os.execve'):
-            result['native_features'].append({'line':node.lineno,'feature':name,'action':'Run the original submission in native Python; browser workers cannot launch operating-system processes.'})
+            result['native_features'].append({'line':node.lineno,'feature':name,'action':'Supported install commands can use the labeled in-app browser adaptation. Arbitrary processes or validation of unchanged native setup require native Python.'})
         elif name.startswith('truststore.'):
-            result['native_features'].append({'line':node.lineno,'feature':name,'action':'Use native Python with the real truststore package and system certificate store. Do not replace SSL configuration with a successful no-op.'})
+            result['native_features'].append({'line':node.lineno,'feature':name,'action':'The labeled in-app browser adaptation can test application code while leaving native SSL setup unverified. Full system truststore behavior requires native Python.'})
     return result
 
 

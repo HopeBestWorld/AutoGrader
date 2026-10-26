@@ -78,12 +78,15 @@ test('legacy interruptions can retry while dependency and code failures stay sep
 });
 
 test('execution sends only the selected student archive; exports carry no source archives',()=>{
- const inputs={archive:'COHORT',instructions:'ASSIGNMENT',preset:'8'};
+ const inputs={archive:'COHORT',instructions:'ASSIGNMENT',preset:'8',shared_archive:'COURSE',student_resources_archive:'ALL_STUDENT_RESOURCES'};
  const selected={one:{archive:'STUDENT',sha256:'SHA'}};
  const payload=prepareWorkerRequest({payload:{mode:'run',student:'one',entry:'main.py'},inputs,studentArchives:selected,bundle:'app.json'});
  assert.equal(payload.submission_archive,'STUDENT');assert.equal(payload.submission_sha256,'SHA');
  assert.equal(payload.protocol_version,2);
  assert.equal('archive' in payload,false);assert.equal('instructions' in payload,false);
+ assert.equal('shared_archive' in payload,false);assert.equal('student_resources_archive' in payload,false);
+ const reviewed=prepareWorkerRequest({payload:{mode:'review'},inputs,bundle:'app.json'});
+ assert.equal(reviewed.shared_archive,'COURSE');assert.equal(reviewed.student_resources_archive,'ALL_STUDENT_RESOURCES');
  const split=splitReviewResult({students:[{student:'one'}],_execution_archives:selected});
  assert.equal('_execution_archives' in split.report,false);assert.equal(split.studentArchives,selected);
  const exported=prepareWorkerRequest({payload:{mode:'export',report:split.report},inputs,studentArchives:selected,bundle:'app.json'});

@@ -52,11 +52,12 @@ else:
   if(data.mode==='run') {
    phase('loading_packages');
    const imports=py.runPython("'\\n'.join(p.read_text(errors='replace') for p in groups[job['student']].rglob('*.py'))");
+   const setup=JSON.parse(py.runPython("from browser_setup import setup_requirements\njson.dumps(setup_requirements('\\n'.join(p.read_text(errors='replace') for p in groups[job['student']].rglob('*.py'))))"));
    await py.loadPackage(['pandas','numpy']);
    if(/\b(?:spearman|kendall)\b/i.test(imports))await py.loadPackage('scipy');
    await py.runPythonAsync("await micropip.install('altair')");
    if(/\b(?:from|import)\s+vaderSentiment\b/.test(imports))await py.runPythonAsync("await micropip.install('vaderSentiment==3.3.2')");
-   if(/\b(?:from|import)\s+pronouncing\b/.test(imports))await py.runPythonAsync("await micropip.install('pronouncing==0.3.0')");
+   if(setup.packages.includes('pronouncing')||/\b(?:from|import)\s+pronouncing\b/.test(imports))await py.runPythonAsync("await micropip.install('pronouncing==0.3.0')");
    if(/\b(?:from|import)\s+pypdf\b/.test(imports))await py.runPythonAsync("await micropip.install('pypdf==6.21.2')");
    await py.loadPackagesFromImports(imports); // Only registered Pyodide distributions.
   }
@@ -69,6 +70,10 @@ if job['mode']=='review':
         profile=load_profile(Path('/app/assignments/assignment-'+job['preset']+'.json').read_bytes(),'checklist.json')
     rows=[review_folder(folder,profile,student) for student,folder in groups.items()]
     result=serializable_report(profile,rows)
+    from browser_resources import stage_browser_resources
+    resources=stage_browser_resources(groups,root,base64.b64decode(job['shared_archive']) if job.get('shared_archive') else None,base64.b64decode(job['student_resources_archive']) if job.get('student_resources_archive') else None)
+    result['browser_resources']=resources['configuration']
+    for row in result['students']:row['resource_staging']=resources['staged'][row['student']]
     result['archive_sha256']=hashlib.sha256(execution_bytes).hexdigest()
     result['runtime_capabilities']={'edition':'browser execution subset','native_execution':False}
     # Session-only side channel; the UI removes these before any report/export.
